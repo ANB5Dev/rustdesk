@@ -208,7 +208,7 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
 
         # macOS AppInfo
         {
-            'file': 'flutter/macos/Runner/AppInfo.xcconfig',
+            'file': 'flutter/macos/Runner/Configs/AppInfo.xcconfig',
             'multi': [
                 {
                     'from': 'PRODUCT_NAME = RustDesk',
