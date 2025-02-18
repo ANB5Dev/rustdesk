@@ -19,7 +19,7 @@ def main():
     dir = f'customization/images/{config_dict["images"]}/generated'
 
     print(f'\nMoving images from: {dir}\n')
-    images = glob(f'{dir}/**/*.png', recursive=True) + glob(f'{dir}/**/*.svg', recursive=True) + glob(f'{dir}/**/*.ico', recursive=True)
+    images = glob(f'{dir}/**/*.png', recursive=True) + glob(f'{dir}/**/*.svg', recursive=True) + glob(f'{dir}/**/*.ico', recursive=True) + glob(f'{dir}/**/*.icns', recursive=True)
     for i in images:
         print(f'{i} -> {os.path.relpath(i, dir)}')
         shutil.copy(i, os.path.relpath(i, dir))
