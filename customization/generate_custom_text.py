@@ -88,6 +88,12 @@ pub fn is_incoming_only() -> bool {
         # Common code
 
         {
+            'file': 'build.py',
+            'from': "system2('cp -rf ../target/release/service ./build/macos/Build/Products/Release/RustDesk.app/Contents/MacOS/')",
+            'to':  f"system2('cp -rf ../target/release/service \"./build/macos/Build/Products/Release/{config.app_name}.app/Contents/MacOS/')\""
+        },
+
+        {
             'file': 'libs/hbb_common/src/config.rs',
             'multi': [
                 {

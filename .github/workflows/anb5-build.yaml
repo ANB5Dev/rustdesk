@@ -379,7 +379,6 @@ jobs:
             sed -i -e "s/MACOSX_DEPLOYMENT_TARGET = [0-9]*.[0-9]*;/MACOSX_DEPLOYMENT_TARGET = ${MIN_MACOS_VERSION};/" flutter/macos/Runner.xcodeproj/project.pbxproj
           fi
           ./build.py --flutter --hwcodec --unix-file-copy-paste ${{ matrix.job.extra-build-args }}
-          mv ./flutter/build/macos/Build/Products/Release/RustDesk.app "./flutter/build/macos/Build/Products/Release/${{ fromJson(inputs.customization).app_name }}.app"
 
       - name: create unsigned dmg
         if: env.UPLOAD_ARTIFACT == 'true'
@@ -729,6 +728,13 @@ jobs:
           files: |
             *.deb
             *.rpm
+
+      - name: Upload deb
+        uses: actions/upload-artifact@master
+        if: env.UPLOAD_ARTIFACT == 'true'
+        with:
+          name: ${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.deb
+          path: ${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.deb
 
       # only x86_64 for arch since we can not find newest arm64 docker image to build
       # old arch image does not make sense for arch since it is "arch" which always update to date
