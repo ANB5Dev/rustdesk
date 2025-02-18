@@ -15,6 +15,7 @@ def main():
 
     config_arg = sys.argv[1]
     config_dict = json.loads(config_arg)
+    config_dict['org'] = '.'.join(config_dict['identifier'].split('.')[:-1])
     print('config:')
     print(config_dict)
     config = SimpleNamespace(**config_dict)
@@ -107,6 +108,10 @@ pub fn is_incoming_only() -> bool {
                 {
                     'from': '"OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw="',
                     'to':  f'"{config.pubkey}"'
+                },
+                {
+                    'from': 'com.carriez',
+                    'to':   config.org
                 }
             ]
         },
@@ -225,6 +230,32 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
                     'to':  f'PRODUCT_COPYRIGHT = Copyright © 2025 Purslane Ltd. & {config.copyright}. All rights reserved.'
                 }
             ]
+        },
+
+        # macOS installer
+        {
+            'file': '',
+            'from': 'crate::get_full_name()',
+            'to':   config.identifier,
+            'times': 4
+        },
+
+        {
+            'file': 'src/platform/privileges_scripts/agent.plist',
+            'from': 'com.carriez.RustDesk',
+            'to':   config.identifier
+        },
+
+        {
+            'file': 'src/platform/privileges_scripts/daemon.plist',
+            'from': 'com.carriez.RustDesk',
+            'to':   config.identifier
+        },
+
+        {
+            'file': 'src/platform/privileges_scripts/install.scpt',
+            'from': 'com.carriez.RustDesk',
+            'to':   config.identifier
         },
 
     ]
