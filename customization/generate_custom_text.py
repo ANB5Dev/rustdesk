@@ -234,7 +234,7 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
 
         # macOS installer
         {
-            'file': '',
+            'file': 'src/platform/macos.rs',
             'from': 'crate::get_full_name()',
             'to':   config.identifier,
             'times': 4
