@@ -236,7 +236,7 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
         {
             'file': 'src/platform/macos.rs',
             'from': 'crate::get_full_name()',
-            'to':   config.identifier,
+            'to':  f'"{config.identifier}"',
             'times': 4
         },
 
