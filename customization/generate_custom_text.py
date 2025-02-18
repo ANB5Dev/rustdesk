@@ -255,7 +255,8 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
         {
             'file': 'src/platform/privileges_scripts/install.scpt',
             'from': 'com.carriez.RustDesk',
-            'to':   config.identifier
+            'to':   config.identifier,
+            'times': 9
         },
 
     ]
@@ -269,6 +270,8 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
 def process_diff(file, diff):
     '''
     diff = { from, to = '', times = 1, if = True, regex = False, regex_flags = 0 }
+    
+    NB: all instances of 'from' are replaced, and 'times' is used as a check: if the number of replacements doesn't match `times`, an error is raised.
     '''
     diff_from = diff['from']
     diff_to = diff.get('to', '')
