@@ -248,8 +248,16 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
 
         {
             'file': 'src/platform/privileges_scripts/daemon.plist',
-            'from': 'com.carriez.RustDesk',
-            'to':   config.identifier
+            'multi': [
+                {
+                    'from': 'com.carriez.RustDesk',
+                    'to':   config.identifier
+                },
+                {
+                    'from': '/Applications/RustDesk.app/Contents/MacOS/service',
+                    'to':   '"/Applications/RustDesk.app/Contents/MacOS/service"'  # .app name already replaced in macos.rs:correct_app_name()
+                },
+            ]
         },
 
         {
