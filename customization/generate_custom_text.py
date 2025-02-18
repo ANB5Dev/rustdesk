@@ -267,6 +267,14 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
             'times': 9
         },
 
+        # Flatpak
+
+        {
+            'file': 'flatpak/rustdesk.json',
+            'from': '"id": "com.rustdesk.RustDesk"',
+            'to':  f'"id": "{config.identifier}"'
+        },
+
     ]
 
     error_count = process_diffs(diffs)
