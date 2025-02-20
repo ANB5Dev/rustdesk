@@ -1,7 +1,7 @@
 [Desktop Entry]
-Name=RustDesk
-GenericName=Remote Desktop
-Comment=Remote Desktop
+Name=ASCI HulpOpAfstand
+GenericName=Remote Desktop x
+Comment=Remote Desktop y
 Exec=rustdesk %u
 Icon=rustdesk
 Terminal=false
