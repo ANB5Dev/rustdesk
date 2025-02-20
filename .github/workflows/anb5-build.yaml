@@ -12,7 +12,7 @@ on:
         description: "tag to upload (e.g., asci, asci-in-debug)"
         required: true
       customization:
-        description: "customization (escaped JSON)"
+        description: "customization (JSON)"
         required: true
 
 env:
@@ -795,6 +795,12 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Generate custom text
+        run: python3 ./customization/generate_custom_text.py '${{ inputs.customization }}'
+        
+      - name: Move custom images
+        run: python3 ./customization/move_images.py '${{ inputs.customization }}'
+
       - name: Download Binary
         uses: actions/download-artifact@master
         with:
@@ -825,15 +831,11 @@ jobs:
             git config --global --add safe.directory "*"
             pushd /workspace
             # flatpak deps
-            flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+            flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
             # package
             pushd flatpak
             git clone https://github.com/flathub/shared-modules.git --depth=1
-            flatpak-builder --install-deps-from=flathub -y --force-clean --repo=repo ./build ./rustdesk.json
-            flatpak build-export repo build
-            flatpak build-commit-from repo
-            flatpak list --app
-            flatpak build-update-repo --print-refs repo
+            flatpak-builder --user --install-deps-from=flathub -y --force-clean --repo=repo ./build ./rustdesk.json
             flatpak build-bundle ./repo "${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.flatpak" ${{ fromJson(inputs.customization).identifier }}
 
       - name: Publish flatpak package
