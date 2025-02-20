@@ -825,11 +825,15 @@ jobs:
             git config --global --add safe.directory "*"
             pushd /workspace
             # flatpak deps
-            flatpak --user remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+            flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
             # package
             pushd flatpak
             git clone https://github.com/flathub/shared-modules.git --depth=1
-            flatpak-builder --user --install-deps-from=flathub -y --force-clean --repo=repo ./build ./rustdesk.json
+            flatpak-builder --install-deps-from=flathub -y --force-clean --repo=repo ./build ./rustdesk.json
+            flatpak build-export repo build
+            flatpak build-commit-from repo
+            flatpak list --app
+            flatpak build-update-repo --print-refs repo
             flatpak build-bundle ./repo "${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.flatpak" ${{ fromJson(inputs.customization).identifier }}
 
       - name: Publish flatpak package
