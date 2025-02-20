@@ -190,11 +190,11 @@ pub fn is_installed_daemon(prompt: bool) -> bool {
         return false;
     };
 
-    log::info!("Loaded install.scpt:\n{}", install_script);
+    log::info!("Loaded install.scpt:\n{:?}", install_script);
     log::info!("Executing osascript:\n{}", install_script_body);
-    log::info!("Loaded daemon.plist:\n{}", daemon_plist);
+    log::info!("Loaded daemon.plist:\n{:?}", daemon_plist);
     log::info!("Executing osascript:\n{}", daemon_plist_body);
-    log::info!("Loaded agent.plist:\n{}", agent_plist);
+    log::info!("Loaded agent.plist:\n{:?}", agent_plist);
     log::info!("Executing osascript:\n{}", agent_plist_body);
 
     std::thread::spawn(move || {
@@ -245,7 +245,7 @@ pub fn uninstall_service(show_new_window: bool, sync: bool) -> bool {
         return false;
     };
 
-    log::info!("Loaded uninstall.scpt:\n{}", script_file);
+    log::info!("Loaded uninstall.scpt:\n{:?}", script_file);
     log::info!("Executing osascript:\n{}", script_body);
 
     let func = move || {
