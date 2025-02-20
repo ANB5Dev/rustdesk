@@ -190,6 +190,13 @@ pub fn is_installed_daemon(prompt: bool) -> bool {
         return false;
     };
 
+    log::info!("Loaded install.scpt:\n{}", install_script);
+    log::info!("Executing osascript:\n{}", install_script_body);
+    log::info!("Loaded daemon.plist:\n{}", daemon_plist);
+    log::info!("Executing osascript:\n{}", daemon_plist_body);
+    log::info!("Loaded agent.plist:\n{}", agent_plist);
+    log::info!("Executing osascript:\n{}", agent_plist_body);
+
     std::thread::spawn(move || {
         match std::process::Command::new("osascript")
             .arg("-e")
@@ -233,9 +240,13 @@ pub fn uninstall_service(show_new_window: bool, sync: bool) -> bool {
     let Some(script_file) = PRIVILEGES_SCRIPTS_DIR.get_file("uninstall.scpt") else {
         return false;
     };
+
     let Some(script_body) = script_file.contents_utf8().map(correct_app_name) else {
         return false;
     };
+
+    log::info!("Loaded uninstall.scpt:\n{}", script_file);
+    log::info!("Executing osascript:\n{}", script_body);
 
     let func = move || {
         match std::process::Command::new("osascript")
@@ -727,6 +738,7 @@ pub fn elevate(args: Vec<&str>, prompt: &str) -> ResultType<bool> {
                 r#"do shell script "{}" with prompt "{}" with administrator privileges"#,
                 cmd_with_args, prompt
             );
+            log::info!("Executing osascript:\n{}", script);
             match std::process::Command::new("osascript")
                 .arg("-e")
                 .arg(script)
