@@ -275,6 +275,12 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
             'to':  f'"id": "{config.identifier}"'
         },
 
+        {
+            'file': 'flatpak/com.rustdesk.RustDesk.metainfo.xml',
+            'from': '<id>com.rustdesk.RustDesk</id>',
+            'to': f'<id>{config.identifier}</id>'
+        },
+
     ]
 
     error_count = process_diffs(diffs)
