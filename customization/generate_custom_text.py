@@ -267,6 +267,21 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
             'times': 9
         },
 
+        {
+            'file': 'src/platform/privileges_scripts/uninstall.scpt',
+            'multi': [
+                {
+                    'from': 'com.carriez.RustDesk',
+                    'to':   config.identifier,
+                    'times': 3
+                },
+                {
+                    'from': 'want to unload daemon',
+                    'to':   'wants to unload launch daemon'
+                },
+            ],
+        },
+
         # Flatpak
 
         {
