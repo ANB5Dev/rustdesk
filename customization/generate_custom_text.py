@@ -282,6 +282,72 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
             ],
         },
 
+        # Enable debug for macOS "installer"
+        {
+            'file': 'src/platform/macos.rs',
+            'multi': [
+                {
+                    'if':   config.debug,
+                    'from':
+'''\
+    let Some(agent_plist_body) = agent_plist.contents_utf8().map(correct_app_name) else {
+        return false;
+    };
+''',
+                    'to':
+r'''\
+    let Some(agent_plist_body) = agent_plist.contents_utf8().map(correct_app_name) else {
+        return false;
+    };
+
+    log::info!("Loaded install.scpt:\n{:?}", install_script);
+    log::info!("Executing osascript:\n{}", install_script_body);
+    log::info!("Loaded daemon.plist:\n{:?}", daemon_plist);
+    log::info!("Executing osascript:\n{}", daemon_plist_body);
+    log::info!("Loaded agent.plist:\n{:?}", agent_plist);
+    log::info!("Executing osascript:\n{}", agent_plist_body);
+
+'''
+                },
+                {
+                    'if':   config.debug,
+                    'from':
+'''\
+    let Some(script_body) = script_file.contents_utf8().map(correct_app_name) else {
+        return false;
+    };
+''',
+                    'to': 
+r'''\
+    let Some(script_body) = script_file.contents_utf8().map(correct_app_name) else {
+        return false;
+    };
+
+    log::info!("Loaded uninstall.scpt:\n{:?}", script_file);
+    log::info!("Executing osascript:\n{}", script_body);
+'''
+                },
+                {
+                    'if':   config.debug,
+                    'from':
+'''\
+            let script = format!(
+                r#"do shell script "{}" with prompt "{}" with administrator privileges"#,
+                cmd_with_args, prompt
+            );
+''',
+                    'to':
+'''\
+            let script = format!(
+                r#"do shell script "{}" with prompt "{}" with administrator privileges"#,
+                cmd_with_args, prompt
+            );
+            log::info!("Executing osascript:\n{}", script);
+''',
+                }
+            ]
+        },
+
         # Flatpak / Linux
 
         {
