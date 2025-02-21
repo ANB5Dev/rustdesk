@@ -282,7 +282,38 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
             ],
         },
 
-        # Flatpak
+        # Flatpak / Linux
+
+        {
+            'file': 'res/rustdesk.desktop',
+            'multi': [
+                {
+                    'from': 'Name=RustDesk',
+                    'to':  f'Name={config.app_name}'
+                },
+                {
+                    'from': '=Remote Desktop',
+                    'to': f'={config.description}',
+                    'times': 2
+                }
+            ]
+        },
+
+        {
+            'file': 'flatpak/com.rustdesk.RustDesk.metainfo.xml',
+            'multi': [
+                {
+                    'from': r'<developer id="com\.rustdesk">\s+<name>RustDesk<\/name>',
+                    'to':   f'<developer id="{config.org}">\n    <name>{config.company}</name>',
+                    'regex': True,
+                    'regex_flags': re.MULTILINE
+                },
+                {
+                    'from': '<name>RustDesk</name>',
+                    'to':  f'<name>{config.app_name}</name>'
+                }
+            ]
+        },
 
         {
             'file': 'flatpak/rustdesk.json',
