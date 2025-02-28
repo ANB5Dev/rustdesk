@@ -282,6 +282,19 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
             ],
         },
 
+        # macOS plist & xcodeproj identifiers
+        {
+            'file': 'flutter/macos/Runner/Info.plist',
+            'from': 'com.carriez.rustdesk',
+            'to':   config.identifier
+        },
+        {
+            'file': 'flutter/macos/Runner.xcodeproj/project.pbxproj',
+            'from': 'com.carriez.rustdesk',
+            'to':    config.identifier,
+            'times': 3
+        },
+
         # Flatpak / Linux
 
         {
