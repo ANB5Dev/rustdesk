@@ -657,5 +657,12 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Untagged", "Sans étiquette"),
         ("new-version-of-{}-tip", "Une nouvelle version de {} est disponible"),
         ("Accessible devices", "Appareils accessibles"),
+        ("View camera", "Afficher la caméra"),
+        ("upgrade_remote_rustdesk_client_to_{}_tip", "Veuillez mettre le client RustDesk distant à jour vers la version {} ou ultérieure !"),
+        ("view_camera_unsupported_tip", "L’appareil distant ne prend pas en charge l’affichage de la caméra."),
+        ("Enable camera", "Activer la caméra"),
+        ("No cameras", "Aucune caméra"),
+        ("d3d_render_tip", "Sur certaines machines, l’écran du contrôle à distance peut rester noir lors de l’utilisation du rendu D3D."),
+        ("Use D3D rendering", "Utiliser le rendu D3D"),
     ].iter().cloned().collect();
 }
