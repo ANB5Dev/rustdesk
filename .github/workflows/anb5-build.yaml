@@ -197,7 +197,7 @@ jobs:
 
       - name: Archive unsigned build
         if: ${{ inputs.upload-artifact }}
-        run: tar -czvf "windows-unsigned-${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.tar.gz" .
+        run: tar --exclude="windows-unsigned-${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.tar.gz" -czvf "windows-unsigned-${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.tar.gz" .
         shell: bash
 
       - name: Upload unsigned archive
