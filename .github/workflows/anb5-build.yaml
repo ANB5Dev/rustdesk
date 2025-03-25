@@ -197,15 +197,15 @@ jobs:
 
       - name: Archive unsigned build
         if: ${{ inputs.upload-artifact }}
-        run: tar -czvf windows-unsigned-${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.tar.gz rustdesk
+        run: tar -czvf "windows-unsigned-${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.tar.gz" rustdesk
         shell: bash
 
       - name: Upload unsigned archive
         if: ${{ inputs.upload-artifact }}
         uses: actions/upload-artifact@master
         with:
-          name: windows-unsigned-${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}
-          path: windows-unsigned-${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.tar.gz
+          name: "windows-unsigned-${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}"
+          path: "windows-unsigned-${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.tar.gz"
 
   build-for-macOS:
     name: ${{ matrix.job.target }}
