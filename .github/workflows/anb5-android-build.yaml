@@ -1,0 +1,25 @@
+name: Build custom version of RustDesk
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload-artifact:
+        description: "upload artifacts"
+        default: true
+        required: false
+        type: boolean
+      upload-tag:
+        description: "tag to upload (e.g., asci, asci-in-debug)"
+        required: false
+      customization:
+        description: "customization (escaped JSON)"
+        required: false
+
+# placeholder / definition of inputs, for use in master branch
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder
+        run: echo Hello, world!
