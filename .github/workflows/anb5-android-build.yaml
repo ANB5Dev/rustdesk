@@ -10,10 +10,10 @@ on:
         type: boolean
       upload-tag:
         description: "tag to upload (e.g., asci, asci-in-debug)"
-        required: false
+        required: true
       customization:
         description: "customization (escaped JSON)"
-        required: false
+        required: true
 
 # placeholder / definition of inputs, for use in master branch
 
