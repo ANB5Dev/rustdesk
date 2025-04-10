@@ -241,6 +241,9 @@ jobs:
           name: librustdesk.so.${{ matrix.job.target }}
           path: ./target/${{ matrix.job.target }}/release/liblibrustdesk.so
 
+      - name: Clean Flutter build
+        run: flutter clean
+
       - name: Build rustdesk
         shell: bash
         env:
