@@ -522,3 +522,9 @@ jobs:
           tag_name: ${{ env.TAG_NAME }}
           files: |
             signed-apk/rustdesk-${{ env.VERSION }}-universal${{ env.suffix }}.apk
+
+      - name: Upload entire build workspace
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-workspace
+          path: ${{ github.workspace }}
