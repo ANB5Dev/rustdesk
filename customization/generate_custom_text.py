@@ -340,20 +340,12 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
         },
 
         # Android
-        {
-            'file': 'flutter/android/app/build.gradle',
-            'from': 'com.carriez.flutter_hbb',
-            'to':   config.identifier
-        },
+
 
         {
             'file': 'flutter/android/app/src/main/AndroidManifest.xml',
             'multi': [
-                {
-                    'from': 'com.carriez.flutter_hbb',
-                    'to':   config.identifier,
-                    'times': 2
-                },
+
                 {
                     'from': 'android:label="RustDesk"',
                     'to':  f'android:label="{config.app_name}"'
@@ -368,11 +360,7 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
         {
             'file': 'flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/BootReceiver.kt',
             'multi': [
-                {
-                    'from': 'com.carriez.flutter_hbb',
-                    'to':   config.identifier,
-                    'times': 2
-                },
+
                 {
                     'from': '"RustDesk is Open"',
                     'to':  f'"{config.app_name} is Open"'
