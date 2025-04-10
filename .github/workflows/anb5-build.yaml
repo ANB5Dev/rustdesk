@@ -31,7 +31,7 @@ env:
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   # vcpkg version: 2025.01.13
   VCPKG_COMMIT_ID: "6f29f12e82a8293156836ad81cc9bf5af41fe836"
-  VERSION: "1.3.9"
+  VERSION: "1.3.8"
   NDK_VERSION: "r27c"
   #signing keys env variable checks
   ANDROID_SIGNING_KEY: "${{ secrets.ANDROID_SIGNING_KEY }}"
@@ -195,26 +195,17 @@ jobs:
           name: topmostwindow-artifacts
           path: "./rustdesk"
 
-      - name: Build self-extracted executable
+      - name: Archive unsigned build
+        if: ${{ inputs.upload-artifact }}
+        run: tar --exclude="windows-unsigned-${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.tar.gz" -czvf "windows-unsigned-${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.tar.gz" .
         shell: bash
-        if: env.UPLOAD_ARTIFACT == 'true'
-        run: |
-          sed -i '/dpiAware/d' res/manifest.xml
-          pushd ./libs/portable
-          pip3 install -r requirements.txt
-          python3 ./generate.py -f ../../rustdesk/ -o . -e "../../rustdesk/${{ fromJson(inputs.customization).app_name }}.exe"
-          popd
-          mkdir -p ./SignOutput
-          mv ./target/release/rustdesk-portable-packer.exe "./SignOutput/${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.exe"
 
-      - name: Publish Release
-        uses: softprops/action-gh-release@v1
-        if: env.UPLOAD_ARTIFACT == 'true'
+      - name: Upload unsigned archive
+        if: ${{ inputs.upload-artifact }}
+        uses: actions/upload-artifact@master
         with:
-          prerelease: true
-          tag_name: ${{ env.TAG_NAME }}
-          files: |
-            ./SignOutput/*.exe
+          name: "windows-unsigned-${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}"
+          path: "windows-unsigned-${{ fromJson(inputs.customization).app_name }}-${{ env.VERSION }}-${{ matrix.job.arch }}.tar.gz"
 
   build-for-macOS:
     name: ${{ matrix.job.target }}
