@@ -422,7 +422,7 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
         },
 
         {
-            'file': 'flutter/lib/desktop/pages/install_pages.dart',
+            'file': 'flutter/lib/desktop/pages/install_page.dart',
             'from': "'https://rustdesk.com/privacy.html'",
             'to':  f"'{config.privacy_url}'",
             'times': 2
