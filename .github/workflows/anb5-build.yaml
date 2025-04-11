@@ -413,7 +413,7 @@ jobs:
 
   build-rustdesk-linux:
     needs: [generate-bridge]
-    name: build rustdesk linux ${{ matrix.job.target }}
+    name: ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.on }}
     strategy:
       fail-fast: false
@@ -688,7 +688,7 @@ jobs:
           path: ${{ env.FILENAME_BASE }}-${{ matrix.job.arch }}.deb
 
   build-flatpak:
-    name: Build flatpak ${{ matrix.job.target }}${{ matrix.job.suffix }}
+    name: flatpak ${{ matrix.job.target }}${{ matrix.job.suffix }}
     needs:
       - build-rustdesk-linux
     runs-on: ${{ matrix.job.on }}
@@ -771,7 +771,7 @@ jobs:
 
   build-rustdesk-android:
     needs: [generate-bridge]
-    name: build rustdesk android apk ${{ matrix.job.target }}
+    name: ${{ matrix.job.target }}
     runs-on: ${{ matrix.job.os }}
     strategy:
       fail-fast: false
@@ -1070,7 +1070,7 @@ jobs:
 
   build-rustdesk-android-universal:
     needs: [build-rustdesk-android]
-    name: build rustdesk android universal apk
+    name: android universal apk
     if: ${{ inputs.upload-artifact }}
     runs-on: ubuntu-20.04
     env:
