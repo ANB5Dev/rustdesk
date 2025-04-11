@@ -419,6 +419,19 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
                     'to':  f"'{config.privacy_url}'"
                 }
             ]
+        },
+
+        {
+            'file': 'flutter/lib/desktop/pages/install_pages.dart',
+            'from': "'https://rustdesk.com/privacy.html'",
+            'to':  f"'{config.privacy_url}'",
+            'times': 2
+        },
+
+        {
+            'file': 'src/ui/index.tis',
+            'from': "'https://rustdesk.com/privacy.html'",
+            'to':  f"'{config.privacy_url}'",
         }
 
     ]
