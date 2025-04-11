@@ -678,7 +678,7 @@ jobs:
             export DEB_ARCH=${{ matrix.job.deb_arch }}
             python3 ./build.py --flutter --skip-cargo
             for name in *.deb; do
-              mv "$name" "$FILENAME_BASE-${{ matrix.job.arch }}.deb"
+              mv "$name" "${{ env.FILENAME_BASE }}-${{ matrix.job.arch }}.deb"
             done
 
       - name: Upload deb
