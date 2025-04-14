@@ -54,7 +54,7 @@ env:
   UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}"
 
-  # Filename base, eg "ASCI Hulp op Afstand-1.3.8-full-debug-apr14"
+  # Filename base, eg "ASCI Hulp op Afstand-1.3.8-full-debug-apr14". De uiteindelijke filename komt nog OS en architecture bij: ASCI Hulp op Afstand-1.3.8-full-debug-apr14-macOS-aarch64.dmg
   FILENAME_BASE: ${{fromJson(inputs.customization).app_name}}-1.3.8-${{fromJson(inputs.customization).incoming_only && 'incoming' || 'full'}}${{fromJson(inputs.customization).debug && '-debug' || ''}}-${{inputs.upload-tag }}
 
 jobs:
@@ -218,7 +218,7 @@ jobs:
 
       - name: Zip unsigned build
         run: |
-          zip -r unsigned-${{ env.FILENAME_BASE }}-${{ matrix.job.arch }}-windows.zip .
+          zip -r unsigned-${{ env.FILENAME_BASE }}-Windows-${{ matrix.job.arch }}.zip .
 
       - name: Publish zip
         if: env.UPLOAD_ARTIFACT == 'true'
@@ -226,7 +226,7 @@ jobs:
         with:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
-          files: unsigned-${{ env.FILENAME_BASE }}-${{ matrix.job.arch }}-windows.zip
+          files: unsigned-${{ env.FILENAME_BASE }}-Windows-${{ matrix.job.arch }}.zip
 
   build-for-macOS:
     name: ${{ matrix.job.target }}
@@ -423,7 +423,7 @@ jobs:
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           for name in *.dmg; do
-              mv "$name" "$FILENAME_BASE-${{ matrix.job.arch }}.dmg"
+              mv "$name" "$FILENAME_BASE-macOS-${{ matrix.job.arch }}.dmg"
           done
 
       - name: Publish DMG package
@@ -784,7 +784,7 @@ jobs:
             pushd flatpak
             git clone https://github.com/flathub/shared-modules.git --depth=1
             flatpak-builder --user --install-deps-from=flathub -y --force-clean --repo=repo ./build ./rustdesk.json
-            flatpak build-bundle ./repo "${{ env.FILENAME_BASE }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.flatpak" ${{ fromJson(inputs.customization).identifier }}
+            flatpak build-bundle ./repo "${{ env.FILENAME_BASE }}-Linux-${{ matrix.job.arch }}${{ matrix.job.suffix }}.flatpak" ${{ fromJson(inputs.customization).identifier }}
 
       - name: Publish flatpak package
         uses: softprops/action-gh-release@v1
@@ -792,7 +792,7 @@ jobs:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
           files: |
-            flatpak/${{ env.FILENAME_BASE }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.flatpak
+            flatpak/${{ env.FILENAME_BASE }}-Linux-${{ matrix.job.arch }}${{ matrix.job.suffix }}.flatpak
 
   build-rustdesk-android:
     name: ${{ matrix.job.target }}
@@ -1010,7 +1010,7 @@ jobs:
               pushd flutter
               flutter clean
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-arm64 --split-per-abi
-              mv build/app/outputs/flutter-apk/app-arm64-v8a-${{ matrix.job.reltype }}.apk "../$FILENAME_BASE-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
+              mv build/app/outputs/flutter-apk/app-arm64-v8a-${{ matrix.job.reltype }}.apk "../$FILENAME_BASE-Android-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
             armv7-linux-androideabi)
               mkdir -p ./flutter/android/app/src/main/jniLibs/armeabi-v7a
@@ -1020,7 +1020,7 @@ jobs:
               pushd flutter
               flutter clean
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-arm --split-per-abi
-              mv build/app/outputs/flutter-apk/app-armeabi-v7a-${{ matrix.job.reltype }}.apk "../$FILENAME_BASE-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
+              mv build/app/outputs/flutter-apk/app-armeabi-v7a-${{ matrix.job.reltype }}.apk "../$FILENAME_BASE-Android-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
             x86_64-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/x86_64
@@ -1030,7 +1030,7 @@ jobs:
               pushd flutter
               flutter clean
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-x64 --split-per-abi
-              mv build/app/outputs/flutter-apk/app-x86_64-${{ matrix.job.reltype }}.apk "../$FILENAME_BASE-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
+              mv build/app/outputs/flutter-apk/app-x86_64-${{ matrix.job.reltype }}.apk "../$FILENAME_BASE-Android-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
             i686-linux-android)
               mkdir -p ./flutter/android/app/src/main/jniLibs/x86
@@ -1040,12 +1040,12 @@ jobs:
               pushd flutter
               flutter clean
               flutter build apk "--${{ matrix.job.reltype }}" --target-platform android-x86 --split-per-abi
-              mv build/app/outputs/flutter-apk/app-x86-${{ matrix.job.reltype }}.apk "../$FILENAME_BASE-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
+              mv build/app/outputs/flutter-apk/app-x86-${{ matrix.job.reltype }}.apk "../$FILENAME_BASE-Android-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
             ;;
           esac
           popd
           mkdir -p signed-apk; pushd signed-apk
-          mv "../$FILENAME_BASE-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk" .
+          mv "../$FILENAME_BASE-Android-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk" .
 
       # https://github.com/r0adkll/sign-android-release/issues/84#issuecomment-1889636075
       - name: Setup sign tool version variable
@@ -1073,7 +1073,7 @@ jobs:
         if: env.ANDROID_SIGNING_KEY != null && env.UPLOAD_ARTIFACT == 'true'
         uses: actions/upload-artifact@master
         with:
-          name: "${{ env.FILENAME_BASE }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
+          name: "${{ env.FILENAME_BASE }}-Android-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
           path: ${{steps.sign-rustdesk.outputs.signedReleaseFile}}
 
       - name: Publish signed apk package
@@ -1092,7 +1092,7 @@ jobs:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
           files: |
-            "signed-apk/${{ env.FILENAME_BASE }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
+            "signed-apk/${{ env.FILENAME_BASE }}-Android-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk"
 
   build-rustdesk-android-universal:
     needs: [build-rustdesk-android]
@@ -1232,7 +1232,7 @@ jobs:
           flutter build apk "--${{ env.reltype }}" --target-platform android-arm64,android-arm,android-x64${{ env.x86_target }}
           popd
           mkdir -p signed-apk
-          mv ./flutter/build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk "signed-apk/${{ env.FILENAME_BASE }}-universal${{ env.suffix }}.apk"
+          mv ./flutter/build/app/outputs/flutter-apk/app-${{ env.reltype }}.apk "signed-apk/${{ env.FILENAME_BASE }}-Android-universal${{ env.suffix }}.apk"
 
       # https://github.com/r0adkll/sign-android-release/issues/84#issuecomment-1889636075
       - name: Setup sign tool version variable
