@@ -300,21 +300,10 @@ jobs:
           mv apple-codesign-0.22.0-macos-universal/rcodesign /usr/local/bin
           popd
 
-      - name: Download LLVM formula from specific commit
-        run: |
-          mkdir -p custom_formula
-          curl -o custom_formula/llvm.rb https://raw.githubusercontent.com/Homebrew/homebrew-core/6e4d2e6e3f6d1c8f9f9e5d8c7b6a5d4c3b2a1f0/Formula/llvm.rb
-
-      - name: Install LLVM from local formula file
-        run: brew install ./custom_formula/llvm.rb
-
-      - name: Force-link LLVM
-        run: brew link --force llvm
-
       - name: Install build runtime
         run: |
           # ANB5 FIX until it's fixed upstream: removed llvm
-          brew install create-dmg nasm cmake gcc wget ninja
+          brew install llvm create-dmg nasm cmake gcc wget ninja
           # pkg-config is handled in a separate step, because it may be already installed by `macos-latest`(14.7.1) runner
           if command -v pkg-config &>/dev/null; then
               echo "pkg-config is already installed"
