@@ -303,6 +303,7 @@ jobs:
       - name: Install build runtime
         run: |
           brew install llvm@19 create-dmg nasm cmake gcc wget ninja
+          brew link --force llvm@19
           # pkg-config is handled in a separate step, because it may be already installed by `macos-latest`(14.7.1) runner
           if command -v pkg-config &>/dev/null; then
               echo "pkg-config is already installed"
