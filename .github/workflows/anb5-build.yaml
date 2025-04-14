@@ -1274,5 +1274,5 @@ jobs:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
           files: |
-            "signed-apk/${{ env.FILENAME_BASE }}-universal${{ env.suffix }}.apk"
+            signed-apk/${{ env.FILENAME_BASE }}-Android-universal${{ env.suffix }}.apk
 
