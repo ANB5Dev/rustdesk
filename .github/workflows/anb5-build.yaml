@@ -64,7 +64,7 @@ jobs:
 
   build-RustDeskTempTopMostWindow:
     name: RustDeskTempTopMostWindow
-    if: ${{ inputs.build_windows }} == 'true'
+    if: ${{ github.event.inputs.build_windows == 'true' }}
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
     with:
       upload-artifact: ${{ inputs.upload-artifact }}
@@ -77,7 +77,7 @@ jobs:
 
   build-for-windows-flutter:
     name: ${{ matrix.job.target }}
-    if: ${{ inputs.build_windows }} == 'true'
+    if: ${{ github.event.inputs.build_windows == 'true' }}
     needs: [build-RustDeskTempTopMostWindow, generate-bridge]
     runs-on: ${{ matrix.job.os }}
     strategy:
@@ -226,7 +226,7 @@ jobs:
 
   build-for-macOS:
     name: ${{ matrix.job.target }}
-    if: ${{ inputs.build_macos }} == 'true'
+    if: ${{ github.event.inputs.build_macos == 'true' }}
     runs-on: ${{ matrix.job.os }}
     needs: [generate-bridge]
     strategy:
@@ -300,19 +300,15 @@ jobs:
           mv apple-codesign-0.22.0-macos-universal/rcodesign /usr/local/bin
           popd
 
-      - name: Create local tap and fetch old LLVM formula
+      - name: Download LLVM formula from specific commit
         run: |
-          # ANB5 FIX until it's fixed upstream
-          mkdir -p "$(brew --repo)/Library/Taps/local/homebrew-old"
-          cd "$(brew --repo)/Library/Taps/local/homebrew-old"
-          mkdir -p Formula
-          curl -o Formula/llvm.rb https://raw.githubusercontent.com/Homebrew/homebrew-core/6e4d2e6e3f6d1c8f9f9e5d8c7b6a5d4c3b2a1f0/Formula/llvm.rb
-          brew tap local/old "$(brew --repo)/Library/Taps/local/homebrew-old"
+          mkdir -p custom_formula
+          curl -o custom_formula/llvm.rb https://raw.githubusercontent.com/Homebrew/homebrew-core/6e4d2e6e3f6d1c8f9f9e5d8c7b6a5d4c3b2a1f0/Formula/llvm.rb
 
-      - name: Install old LLVM
-        run: brew install local/old/llvm
+      - name: Install LLVM from local formula file
+        run: brew install ./custom_formula/llvm.rb
 
-      - name: Force link LLVM
+      - name: Force-link LLVM
         run: brew link --force llvm
 
       - name: Install build runtime
@@ -449,7 +445,7 @@ jobs:
 
   build-rustdesk-linux:
     name: ${{ matrix.job.target }}
-    if: ${{ inputs.build_linux }} == 'true'
+    if: ${{ github.event.inputs.build_linux == 'true' }}
     needs: [generate-bridge]
     runs-on: ${{ matrix.job.on }}
     strategy:
@@ -808,7 +804,7 @@ jobs:
 
   build-rustdesk-android:
     name: ${{ matrix.job.target }}
-    if: ${{ inputs.build_android }} == 'true'
+    if: ${{ github.event.inputs.build_android == 'true' }}
     needs: [generate-bridge]
     runs-on: ${{ matrix.job.os }}
     strategy:
