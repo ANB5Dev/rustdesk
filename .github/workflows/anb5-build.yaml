@@ -217,8 +217,10 @@ jobs:
           path: "./rustdesk"
 
       - name: Zip unsigned build
+        shell: pwsh
         run: |
-          zip -r unsigned-${{ env.FILENAME_BASE }}-Windows-${{ matrix.job.arch }}.zip .
+          $output = "unsigned-${{ env.FILENAME_BASE }}-Windows-${{ matrix.job.arch }}.zip"
+          Compress-Archive -Path * -DestinationPath $output
 
       - name: Publish zip
         if: env.UPLOAD_ARTIFACT == 'true'
