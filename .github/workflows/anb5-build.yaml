@@ -587,6 +587,10 @@ jobs:
             --volume "/opt/artifacts:/opt/artifacts"
           shell: /bin/bash
           install: |
+            apt update
+            apt --fix-broken install
+            apt install libunwind-dev
+
             apt-get update -y
             echo -e "installing deps"
             apt-get install -y \
