@@ -40,9 +40,9 @@ jobs:
             gcc \
             git \
             g++ \
-            libclang-14-dev \
+            libclang-15-dev \
             libgtk-3-dev \
-            llvm-14-dev \
+            llvm-15-dev \
             nasm \
             ninja-build \
             pkg-config \
