@@ -587,10 +587,6 @@ jobs:
             --volume "/opt/artifacts:/opt/artifacts"
           shell: /bin/bash
           install: |
-            apt update
-            apt --fix-broken install
-            apt install libunwind-dev
-
             apt-get update -y
             echo -e "installing deps"
             apt-get install -y \
@@ -858,6 +854,9 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt update
+          sudo apt --fix-broken install
+          sudo apt install libunwind-dev
           sudo apt-get update
           sudo apt-get install -y \
                clang \
