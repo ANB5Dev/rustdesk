@@ -395,6 +395,12 @@ jobs:
           fi
           ./build.py --flutter --hwcodec --unix-file-copy-paste ${{ matrix.job.extra-build-args }}
 
+      - name: Remove signing from .app
+        if: env.UPLOAD_ARTIFACT == 'true'
+        run: |
+          codesign --remove-signature "./flutter/build/macos/Build/Products/Release/${{ fromJson(inputs.customization).app_name }}.app"
+          find "./flutter/build/macos/Build/Products/Release/${{ fromJson(inputs.customization).app_name }}.app/Contents" -type f -name "*.dylib" -exec codesign --remove-signature {} \;
+
       - name: create unsigned dmg
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
@@ -402,6 +408,7 @@ jobs:
           CREATE_DMG="$(readlink -f "$CREATE_DMG")"
           sed -i -e 's/MAXIMUM_UNMOUNTING_ATTEMPTS=3/MAXIMUM_UNMOUNTING_ATTEMPTS=7/' "$CREATE_DMG"
           create-dmg --icon "${{ fromJson(inputs.customization).app_name }}.app" 200 190 --hide-extension "${{ fromJson(inputs.customization).app_name }}.app" --window-size 800 400 --app-drop-link 600 185 "${{ env.FILENAME_BASE }}-${{ matrix.job.arch }}.dmg" "./flutter/build/macos/Build/Products/Release/${{ fromJson(inputs.customization).app_name }}.app"
+
 
       - name: Codesign app and create signed dmg
         if: env.MACOS_P12_BASE64 != null && env.UPLOAD_ARTIFACT == 'true'
