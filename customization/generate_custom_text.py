@@ -17,7 +17,7 @@ def main():
     config_arg = sys.argv[1]
     config_dict = json.loads(config_arg)
     config_dict['org'] = '.'.join(config_dict['identifier'].split('.')[:-1])
-    config_dict['app_name_cargo_filtered'] = re.sub(r'[^A-Za-z0-9-_]', '_', config_dict['app_name'])  # cargo.toml only allows A-Z, a-z, 0-9, _, - in app name
+    config_dict['app_name_cargo_filtered'] = re.sub(r'[^A-Za-z0-9-_]', '_', config_dict['app_name']).lower()  # cargo.toml only allows A-Z, a-z, 0-9, _, - in app name, and prefers snake case 
     print('config:')
     print(config_dict)
     config = SimpleNamespace(**config_dict)
