@@ -355,6 +355,10 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
                 {
                     'from': '<name>RustDesk</name>',
                     'to':  f'<name>{config.app_name}</name>'
+                },
+                {
+                    'from': '<id>com.rustdesk.RustDesk</id>',
+                    'to': f'<id>{config.identifier}</id>'
                 }
             ]
         },
@@ -365,11 +369,91 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
             'to':  f'"id": "{config.identifier}"'
         },
 
+        # Android
         {
-            'file': 'flatpak/com.rustdesk.RustDesk.metainfo.xml',
-            'from': '<id>com.rustdesk.RustDesk</id>',
-            'to': f'<id>{config.identifier}</id>'
+            'file': 'flutter/android/app/src/main/AndroidManifest.xml',
+            'multi': [
+
+                {
+                    'from': 'android:label="RustDesk"',
+                    'to':  f'android:label="{config.app_name}"'
+                },
+                {
+                    'from': 'android:label="RustDesk Input"',
+                    'to':  f'android:label="{config.app_name} Input"'
+                }
+            ]
         },
+
+        {
+            'file': 'flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/BootReceiver.kt',
+            'multi': [
+
+                {
+                    'from': '"RustDesk is Open"',
+                    'to':  f'"{config.app_name} is Open"'
+                }
+            ]
+        },
+
+        {
+            'file': 'flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainService.kt',
+            'multi': [
+                {
+                    'from': 'DEFAULT_NOTIFY_TITLE = "RustDesk"',
+                    'to':  f'DEFAULT_NOTIFY_TITLE = "{config.app_name}"'
+                },
+                {
+                    'from': '"RustDeskVD",',
+                    'to':  f'"{config.app_name}VD",'
+                },
+                {
+                    'from': 'channelId = "RustDesk"',
+                    'to':  f'channelId = "{config.app_name}"'
+                },
+                {
+                    'from': 'channelName = "RustDesk Service"',
+                    'to':  f'channelName = "{config.app_name} Service"'
+                },
+                {
+                    'from': 'description = "RustDesk Service Channel"',
+                    'to':  f'description = "{config.app_name} Service Channel"'
+                }
+            ]
+        },
+
+        {
+            'file': 'flutter/android/app/src/main/res/values/strings.xml',
+            'from': 'RustDesk',
+            'to': config.app_name,
+            'times': 2
+        },
+
+        {
+            'file': 'flutter/lib/mobile/pages/settings_page.dart',
+            'multi': [
+                {
+                    'from': "const url = 'https://rustdesk.com/';",
+                    'to':  f"const url = '{config.website}';",
+                    'times': 2
+                },
+                {
+                    'from': "'rustdesk.com'",
+                    'to':  f"'{config.website}'",
+                    'times': 2
+                },
+                {
+                    'from': "'https://rustdesk.com/privacy.html'",
+                    'to':  f"'{config.privacy_url}'"
+                }
+            ]
+        },
+
+        {
+            'file': 'src/ui/index.tis',
+            'from': "'https://rustdesk.com/privacy.html'",
+            'to':  f"'{config.privacy_url}'",
+        }
 
     ]
 
