@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import sys
 import json
 import re
@@ -16,9 +17,19 @@ def main():
     config_arg = sys.argv[1]
     config_dict = json.loads(config_arg)
     config_dict['org'] = '.'.join(config_dict['identifier'].split('.')[:-1])
+    config_dict['app_name_cargo_filtered'] = re.sub(r'[^A-Za-z0-9-_]', '_', config_dict['app_name'])  # cargo.toml only allows A-Z, a-z, 0-9, _, - in app name
     print('config:')
     print(config_dict)
     config = SimpleNamespace(**config_dict)
+
+    print('Create custom files\n')
+
+    # Set rust version for local completion of Windows Portable build
+    file = 'libs/portable/rust_toolchain.toml'
+    rust_version = os.environ.get("RUST_VERSION")
+    with open(file, "w") as f:
+        f.write(f"[toolchain]\nchannel = \"{rust_version}\"\n")
+
 
     print('Adding custom texts\n')
 
@@ -170,6 +181,10 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
             'file': 'libs/portable/Cargo.toml',
             'multi': [
                 {
+                    'from': 'name = "rustdesk-portable-packer"',
+                    'to':  f'name = "{config.app_name_cargo_filtered}"'
+                },
+                {
                     'from': 'description = "RustDesk Remote Desktop"',
                     'to':  f'description = "{config.description}"'
                 },
@@ -183,10 +198,26 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
                     'to':  f'ProductName = "{config.app_name}"'
                 },
                 {
+                    'from': 'OriginalFilename = "rustdesk.exe"',
+                    'to':  f"OriginalFilename = \"{os.environ.get('FILENAME_BASE')}-Windows.exe\""
+                },
+                {
                     'from': 'FileDescription = "RustDesk Remote Desktop"',
                     'to':  f'FileDescription = "{config.description}"'
                 }
             ]
+        },
+
+        {
+            'file': 'libs/portable/src/main.rs',
+            'from': 'const APP_PREFIX: &str = "rustdesk";',
+            'to':  f'const APP_PREFIX: &str = "{config.identifier}";'
+        },
+
+        {
+            'file': 'libs/portable/generate.py',
+            'from': "options.executable = 'rustdesk.exe'",
+            'to':  f"options.executable = '{config.app_name}.exe'"
         },
 
         # Windows installer
