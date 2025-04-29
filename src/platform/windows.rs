@@ -1178,6 +1178,7 @@ fn get_after_install(
 
     format!("
     chcp 65001
+    if exist \"%localappdata%\\{app_name}\" rmdir /S /Q \"%localappdata%\\{app_name}\"
     reg add \"HKEY_CLASSES_ROOT\\.{ext}\" /f
     {desktop_shortcuts}
     {start_menu_shortcuts}

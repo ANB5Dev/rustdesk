@@ -211,7 +211,7 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
         {
             'file': 'libs/portable/src/main.rs',
             'from': 'const APP_PREFIX: &str = "rustdesk";',
-            'to':  f'const APP_PREFIX: &str = "{config.identifier}";'
+            'to':  f'const APP_PREFIX: &str = "{config.app_name}";'
         },
 
         {
