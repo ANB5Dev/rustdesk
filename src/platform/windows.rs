@@ -2317,6 +2317,7 @@ pub fn uninstall_service(show_new_window: bool, _: bool) -> bool {
     chcp 65001
     sc stop \"{app_name}\"
     sc delete \"{app_name}\"
+    if exist \"%localappdata%\\{app_name}\" rmdir /s /q \"%localappdata%\\{app_name}\"
     if exist \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{app_name} Tray.lnk\" del /f /q \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{app_name} Tray.lnk\"
     taskkill /F /IM \"{broker_exe}\"
     taskkill /F /IM \"{app_name}.exe\"{filter}
