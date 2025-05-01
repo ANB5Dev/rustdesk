@@ -12,8 +12,24 @@ on:
         description: "tag to upload (e.g., asci, asci-in-debug)"
         required: true
       customization:
-        description: "customization (escaped JSON)"
+        description: "customization (JSON)"
         required: true
+      build_windows:
+        description: 'Build for Windows'
+        type: boolean
+        default: true
+      build_macos:
+        description: 'Build for macOS'
+        type: boolean
+        default: true
+      build_linux:
+        description: 'Build for Linux'
+        type: boolean
+        default: true
+      build_android:
+        description: 'Build for Android'
+        type: boolean
+        default: true
 
 # placeholder / definition of inputs, for use in master branch
 
