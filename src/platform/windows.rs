@@ -1178,7 +1178,6 @@ fn get_after_install(
 
     format!("
     chcp 65001
-    if exist \"%localappdata%\\{app_name}\" rmdir /S /Q \"%localappdata%\\{app_name}\"
     reg add \"HKEY_CLASSES_ROOT\\.{ext}\" /f
     {desktop_shortcuts}
     {start_menu_shortcuts}
@@ -2266,6 +2265,7 @@ pub fn uninstall_service(show_new_window: bool, _: bool) -> bool {
     chcp 65001
     sc stop \"{app_name}\"
     sc delete \"{app_name}\"
+    if exist \"%localappdata%\\{app_name}\" rmdir /S /Q \"%localappdata%\\{app_name}\"
     if exist \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{app_name} Tray.lnk\" del /f /q \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{app_name} Tray.lnk\"
     taskkill /F /IM \"{broker_exe}\"
     taskkill /F /IM \"{app_name}.exe\"{filter}
