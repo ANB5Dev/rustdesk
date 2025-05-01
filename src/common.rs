@@ -7,8 +7,6 @@ use std::{
 
 use serde_json::{json, Map, Value};
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-use hbb_common::whoami;
 use hbb_common::{
     allow_err,
     anyhow::{anyhow, Context},
@@ -29,7 +27,7 @@ use hbb_common::{
         self,
         time::{Duration, Instant, Interval},
     },
-    ResultType, Stream,
+    ResultType,
 };
 
 use crate::{
@@ -147,16 +145,6 @@ pub fn is_support_remote_print(ver: &str) -> bool {
 
 pub fn is_support_file_paste_if_macos(ver: &str) -> bool {
     hbb_common::get_version_number(ver) >= hbb_common::get_version_number("1.3.9")
-}
-
-#[inline]
-pub fn is_support_screenshot(ver: &str) -> bool {
-    is_support_multi_ui_session_num(hbb_common::get_version_number(ver))
-}
-
-#[inline]
-pub fn is_support_screenshot_num(ver: i64) -> bool {
-    ver >= hbb_common::get_version_number("1.4.0")
 }
 
 // is server process, with "--server" args
@@ -844,7 +832,7 @@ pub fn is_modifier(evt: &KeyEvent) -> bool {
 pub fn check_software_update() {
     if is_custom_client() {
         return;
-    }
+    } 
     let opt = config::LocalConfig::get_option(config::keys::OPTION_ENABLE_CHECK_UPDATE);
     if config::option2bool(config::keys::OPTION_ENABLE_CHECK_UPDATE, &opt) {
         std::thread::spawn(move || allow_err!(check_software_update_()));
@@ -1208,7 +1196,7 @@ pub fn pk_to_fingerprint(pk: Vec<u8>) -> String {
 
 #[inline]
 pub async fn get_next_nonkeyexchange_msg(
-    conn: &mut Stream,
+    conn: &mut FramedStream,
     timeout: Option<u64>,
 ) -> Option<RendezvousMessage> {
     let timeout = timeout.unwrap_or(READ_TIMEOUT);
@@ -1277,7 +1265,7 @@ pub fn check_process(arg: &str, mut same_uid: bool) -> bool {
     false
 }
 
-pub async fn secure_tcp(conn: &mut Stream, key: &str) -> ResultType<()> {
+pub async fn secure_tcp(conn: &mut FramedStream, key: &str) -> ResultType<()> {
     let rs_pk = get_rs_pk(key);
     let Some(rs_pk) = rs_pk else {
         bail!("Handshake failed: invalid public key from rendezvous server");

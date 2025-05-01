@@ -20,9 +20,10 @@ use hbb_common::{
     rendezvous_proto::*,
     sleep,
     socket_client::{self, connect_tcp, is_ipv4},
+    tcp::FramedStream,
     tokio::{self, select, sync::Mutex, time::interval},
     udp::FramedSocket,
-    AddrMangle, IntoTargetAddr, ResultType, Stream, TargetAddr,
+    AddrMangle, IntoTargetAddr, ResultType, TargetAddr,
 };
 
 use crate::{
@@ -705,7 +706,7 @@ async fn direct_server(server: ServerPtr) {
 
 enum Sink<'a> {
     Framed(&'a mut FramedSocket, &'a TargetAddr<'a>),
-    Stream(&'a mut Stream),
+    Stream(&'a mut FramedStream),
 }
 
 impl Sink<'_> {

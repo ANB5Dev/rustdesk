@@ -501,7 +501,6 @@ class DiscoveredPeersView extends BasePeersView {
   Widget build(BuildContext context) {
     final widget = super.build(context);
     bind.mainLoadLanPeers();
-    bind.mainDiscover();
     return widget;
   }
 }

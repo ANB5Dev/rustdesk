@@ -243,7 +243,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     Provider.of<FfiModel>(context);
     final outgoingOnly = bind.isOutgoingOnly();
-    final incomingOnly = bind.isIncomingOnly();
+    final incommingOnly = bind.isIncomingOnly();
     final customClientSection = CustomSettingsSection(
         child: Column(
       children: [
@@ -723,7 +723,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                           });
                         },
                 ),
-              if (!incomingOnly)
+              if (!incommingOnly)
                 SettingsTile.switchTile(
                   title:
                       Text(translate('Automatically record outgoing sessions')),
