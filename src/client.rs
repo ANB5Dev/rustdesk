@@ -49,6 +49,7 @@ use hbb_common::{
         self, Config, LocalConfig, PeerConfig, PeerInfoSerde, Resolution, CONNECT_TIMEOUT,
         READ_TIMEOUT, RELAY_PORT, RENDEZVOUS_PORT, RENDEZVOUS_SERVERS,
     },
+    fs::JobType,
     get_version_number, log,
     message_proto::{option_message::BoolOption, *},
     protobuf::{Message as _, MessageField},
@@ -57,7 +58,6 @@ use hbb_common::{
     sha2::{Digest, Sha256},
     socket_client::{connect_tcp, connect_tcp_local, ipv4_to_ipv6},
     sodiumoxide::{base64, crypto::sign},
-    tcp::FramedStream,
     timeout,
     tokio::{
         self,
@@ -85,6 +85,7 @@ pub use super::lang::*;
 pub mod file_trait;
 pub mod helper;
 pub mod io_loop;
+pub mod screenshot;
 
 pub const MILLI1: Duration = Duration::from_millis(1);
 pub const SEC30: Duration = Duration::from_secs(30);
@@ -848,6 +849,10 @@ impl ClientClipboardHandler {
             #[cfg(feature = "unix-file-copy-paste")]
             if let Some(urls) = check_clipboard_files(&mut self.ctx, ClipboardSide::Client, false) {
                 if !urls.is_empty() {
+                    #[cfg(target_os = "macos")]
+                    if crate::clipboard::is_file_url_set_by_rustdesk(&urls) {
+                        return;
+                    }
                     if self.is_file_required() {
                         match clipboard::platform::unix::serv_files::sync_files(&urls) {
                             Ok(()) => {
@@ -890,7 +895,8 @@ impl ClientClipboardHandler {
                 return;
             }
 
-            if let Some(pi) = ctx.cfg.lc.read().unwrap().peer_info.as_ref() {
+            let pi = ctx.cfg.lc.read().unwrap().peer_info.clone();
+            if let Some(pi) = pi.as_ref() {
                 if let Some(message::Union::MultiClipboards(multi_clipboards)) = &msg.union {
                     if let Some(msg_out) = crate::clipboard::get_msg_if_not_support_multi_clip(
                         &pi.version,
@@ -1384,14 +1390,15 @@ impl VideoHandler {
     }
 
     /// Start or stop screen record.
-    pub fn record_screen(&mut self, start: bool, id: String, display: usize) {
+    pub fn record_screen(&mut self, start: bool, id: String, display_idx: usize, camera: bool) {
         self.record = false;
         if start {
             self.recorder = Recorder::new(RecorderContext {
                 server: false,
                 id,
                 dir: crate::ui_interface::video_save_directory(false),
-                display,
+                display_idx,
+                camera,
                 tx: None,
             })
             .map_or(Default::default(), |r| Arc::new(Mutex::new(Some(r))));
@@ -2311,8 +2318,24 @@ impl LoginConfigHandler {
         if display_name.is_empty() {
             display_name = crate::username();
         }
+        let display_name = display_name
+            .split_whitespace()
+            .map(|word| {
+                word.chars()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        if i == 0 {
+                            c.to_uppercase().to_string()
+                        } else {
+                            c.to_string()
+                        }
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
         #[cfg(not(target_os = "android"))]
-        let my_platform = whoami::platform().to_string();
+        let my_platform = hbb_common::whoami::platform().to_string();
         #[cfg(target_os = "android")]
         let my_platform = "Android".into();
         let hwid = if self.get_option("trust-this-device") == "Y" {
@@ -2344,6 +2367,7 @@ impl LoginConfigHandler {
                 show_hidden: !self.get_option("remote_show_hidden").is_empty(),
                 ..Default::default()
             }),
+            ConnType::VIEW_CAMERA => lr.set_view_camera(Default::default()),
             ConnType::PORT_FORWARD | ConnType::RDP => lr.set_port_forward(PortForward {
                 host: self.port_forward.0.clone(),
                 port: self.port_forward.1,
@@ -2431,6 +2455,7 @@ pub fn start_video_thread<F, T>(
 {
     let mut video_callback = video_callback;
     let mut last_chroma = None;
+    let is_view_camera = session.is_view_camera();
 
     std::thread::spawn(move || {
         #[cfg(windows)]
@@ -2473,7 +2498,7 @@ pub fn start_video_thread<F, T>(
                             let record_permission = session.lc.read().unwrap().record_permission;
                             let id = session.lc.read().unwrap().id.clone();
                             if record_state && record_permission {
-                                handler.record_screen(true, id, display);
+                                handler.record_screen(true, id, display, is_view_camera);
                             }
                             video_handler = Some(handler);
                         }
@@ -2554,7 +2579,7 @@ pub fn start_video_thread<F, T>(
                     MediaData::RecordScreen(start) => {
                         let id = session.lc.read().unwrap().id.clone();
                         if let Some(handler) = video_handler.as_mut() {
-                            handler.record_screen(start, id, display);
+                            handler.record_screen(start, id, display, is_view_camera);
                         }
                     }
                     _ => {}
@@ -3289,7 +3314,7 @@ pub enum Data {
     Close,
     Login((String, String, String, bool)),
     Message(Message),
-    SendFiles((i32, String, String, i32, bool, bool)),
+    SendFiles((i32, JobType, String, String, i32, bool, bool)),
     RemoveDirAll((i32, String, bool, bool)),
     ConfirmDeleteFiles((i32, i32)),
     SetNoConfirm(i32),
@@ -3303,7 +3328,7 @@ pub enum Data {
     ToggleClipboardFile,
     NewRDP,
     SetConfirmOverrideFile((i32, i32, bool, bool, bool)),
-    AddJob((i32, String, String, i32, bool, bool)),
+    AddJob((i32, JobType, String, String, i32, bool, bool)),
     ResumeJob((i32, bool)),
     RecordScreen(bool),
     ElevateDirect,
@@ -3312,6 +3337,7 @@ pub enum Data {
     CloseVoiceCall,
     ResetDecoder(Option<usize>),
     RenameFile((i32, String, String, bool)),
+    TakeScreenshot((i32, String)),
 }
 
 /// Keycode for key events.
@@ -3548,8 +3574,7 @@ pub mod peer_online {
         rendezvous_proto::*,
         sleep,
         socket_client::connect_tcp,
-        tcp::FramedStream,
-        ResultType,
+        ResultType, Stream,
     };
 
     pub async fn query_online_states<F: FnOnce(Vec<String>, Vec<String>)>(ids: Vec<String>, f: F) {
@@ -3572,7 +3597,7 @@ pub mod peer_online {
         }
     }
 
-    async fn create_online_stream() -> ResultType<FramedStream> {
+    async fn create_online_stream() -> ResultType<Stream> {
         let (rendezvous_server, _servers, _contained) =
             crate::get_rendezvous_server(READ_TIMEOUT).await;
         let tmp: Vec<&str> = rendezvous_server.split(":").collect();
