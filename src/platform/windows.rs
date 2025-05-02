@@ -1457,7 +1457,6 @@ fn get_uninstall(kill_self: bool) -> String {
     reg delete \"{subkey}\" /f
     {uninstall_amyuni_idd}
     if exist \"{path}\" rd /s /q \"{path}\"
-    if exist \"%localappdata%\\{app_name}\" rd /s /q \"%localappdata%\\{app_name}\"
     if exist \"{start_menu}\" rd /s /q \"{start_menu}\"
     if exist \"%PUBLIC%\\Desktop\\{app_name}.lnk\" del /f /q \"%PUBLIC%\\Desktop\\{app_name}.lnk\"
     if exist \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{app_name} Tray.lnk\" del /f /q \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{app_name} Tray.lnk\"
@@ -1638,7 +1637,7 @@ pub fn update_install_option(k: &str, v: &str) -> ResultType<()> {
     let app_name = crate::get_app_name();
     let ext = app_name.to_lowercase();
     let cmds =
-        format!("chcp 65001 && reg add HKEY_CLASSES_ROOT\\.{ext} /f /v {k} /t REG_SZ /d \"{v}\"");
+        format!("chcp 65001 && reg add \"HKEY_CLASSES_ROOT\.{ext}\" /f /v {k} /t REG_SZ /d \"{v}\"");
     run_cmds(cmds, false, "update_install_option")?;
     Ok(())
 }
