@@ -322,6 +322,10 @@ let m = match lang.as_str() {
                 {
                     'from': 'taskkill /F /IM {process_exe}',
                     'to':   'taskkill /F /IM \\"{process_exe}\\"'
+                },
+                {
+                    'from': 'let size = meta.len() / 1024;',
+                    'to':   'let size = 54080;'
                 }
             ]
         },
