@@ -338,9 +338,9 @@ jobs:
         run: |
           # The build's own features, so the tests see the code that ships.
           FEATURES=$(python3 ./build.py --portable --flutter --skip-portable-pack --hwcodec ${{ matrix.job.build-args }} --print-features)
-          cargo test --locked --release --lib --features "$FEATURES"
+          cargo test --release --lib --features "$FEATURES"
           # Its Windows tests run nowhere else.
-          cargo test --locked --release -p clipboard
+          cargo test --release -p clipboard
 
       - name: find Runner.res
         # Windows: find Runner.res (compiled from ./flutter/windows/runner/Runner.rc), copy to ./Runner.res
@@ -569,9 +569,9 @@ jobs:
         if: env.PUBLISH_UPDATE_METADATA == 'true'
         run: |
           python3 -m unittest res/update/test_macos_update_scripts.py
-          cargo test --locked --release --lib platform::macos::update_tests --features "flutter,hwcodec,unix-file-copy-paste${{ matrix.job.extra-cargo-features }}"
-          cargo test --locked --release --lib verified_dmg_tests --features "flutter,hwcodec,unix-file-copy-paste${{ matrix.job.extra-cargo-features }}"
-          cargo test --locked --release --lib update_metadata::tests --features "flutter,hwcodec,unix-file-copy-paste${{ matrix.job.extra-cargo-features }}"
+          cargo test --release --lib platform::macos::update_tests --features "flutter,hwcodec,unix-file-copy-paste${{ matrix.job.extra-cargo-features }}"
+          cargo test --release --lib verified_dmg_tests --features "flutter,hwcodec,unix-file-copy-paste${{ matrix.job.extra-cargo-features }}"
+          cargo test --release --lib update_metadata::tests --features "flutter,hwcodec,unix-file-copy-paste${{ matrix.job.extra-cargo-features }}"
 
       - name: Run the Rust tests
         if: ${{ !inputs.upload-artifact && matrix.job.arch == 'aarch64' }}
@@ -579,9 +579,9 @@ jobs:
           # The build's own features, so the tests see the code that ships. MACOSX_DEPLOYMENT_TARGET
           # comes from the build step's export.
           FEATURES=$(./build.py --flutter --hwcodec --unix-file-copy-paste ${{ matrix.job.extra-build-args }} --print-features)
-          cargo test --locked --release --lib --features "$FEATURES"
+          cargo test --release --lib --features "$FEATURES"
           # Opt-in, and its macOS tests run nowhere else.
-          cargo test --locked --release -p clipboard --features unix-file-copy-paste
+          cargo test --release -p clipboard --features unix-file-copy-paste
           
       - name: Remove signing from .app
         if: env.UPLOAD_ARTIFACT == 'true'
@@ -819,7 +819,7 @@ jobs:
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           rustup target add ${{ matrix.job.target }}
-          cargo install cargo-ndk --version ${{ env.CARGO_NDK_VERSION }} --locked
+          cargo install cargo-ndk --version ${{ env.CARGO_NDK_VERSION }}
           case ${{ matrix.job.target }} in
             aarch64-linux-android)
               ./flutter/ndk_arm64.sh
@@ -1330,7 +1330,7 @@ jobs:
               export JOBS=""
             fi
             echo $JOBS
-            cargo build --locked --lib $JOBS --features hwcodec,flutter,unix-file-copy-paste --release
+            cargo build --lib $JOBS --features hwcodec,flutter,unix-file-copy-paste --release
             rm -rf target/release/deps target/release/build
             rm -rf ~/.cargo
 
