@@ -9,9 +9,9 @@
   <b>Nous avons besoin de votre aide pour traduire ce README dans votre langue maternelle</b>.
 </p>
 
-Chattez avec nous : [Discord](https://discord.gg/nDceKgxnkV) | [Twitter](https://twitter.com/rustdesk) | [Reddit](https://www.reddit.com/r/rustdesk)
+Chattez avec nous : [Discord](https://discord.gg/nDceKgxnkV) | [Twitter](https://twitter.com/rustdesk) | [Reddit](https://www.reddit.com/r/rustdesk) | [YouTube](https://www.youtube.com/@rustdesk)
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/I2I04VU09)
+[![RustDesk Server Pro](https://img.shields.io/badge/RustDesk%20Server%20Pro-Fonctionnalit%C3%A9s%20Avanc%C3%A9es-blue)](https://rustdesk.com/pricing.html)
 
 Encore un autre logiciel de bureau à distance, écrit en Rust. Fonctionne directement, aucune configuration n'est nécessaire. Vous avez le contrôle total de vos données, sans aucun souci de sécurité. Vous pouvez utiliser notre serveur de rendez-vous/relais, [configurer le vôtre](https://rustdesk.com/server), ou [écrire votre propre serveur de rendez-vous/relais](https://github.com/rustdesk/rustdesk-server-demo).
 
@@ -34,9 +34,9 @@ Les versions de bureau utilisent [sciter](https://sciter.com/) pour l'interface 
 - Installez [vcpkg](https://github.com/microsoft/vcpkg), et définissez correctement la variable d'environnement `VCPKG_ROOT`.
 
   - Windows : vcpkg install libvpx:x64-windows-static libyuv:x64-windows-static opus:x64-windows-static aom:x64-windows-static
-  - Linux/Osx : vcpkg install libvpx libyuv opus aom
+  - Linux/macOS : vcpkg install libvpx libyuv opus aom
 
-- Exécuter `cargo run`
+- Exécutez `cargo run`
 
 ## Comment compiler/build sous Linux
 
@@ -93,7 +93,7 @@ cd rustdesk
 mkdir -p target/debug
 wget https://raw.githubusercontent.com/c-smile/sciter-sdk/master/bin.lnx/x64/libsciter-gtk.so
 mv libsciter-gtk.so target/debug
-Exécution du cargo
+cargo run
 ```
 
 ## Comment construire avec Docker

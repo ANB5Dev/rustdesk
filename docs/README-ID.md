@@ -9,9 +9,13 @@
   <b>Kami membutuhkan bantuanmu untuk menterjemahkan file README dan <a href="https://github.com/rustdesk/rustdesk/tree/master/src/lang">RustDesk UI</a> ke Bahasa Indonesia</b>
 </p>
 
-Mari mengobrol bersama kami: [Discord](https://discord.gg/nDceKgxnkV) | [Twitter](https://twitter.com/rustdesk) | [Reddit](https://www.reddit.com/r/rustdesk)
+> [!Caution]
+> **Peringatan Penyalahgunaan:** <br>
+> Pengembang RustDesk tidak membenarkan atau mendukung penggunaan perangkat lunak ini yang tidak etis atau melanggar hukum. Penyalahgunaan, seperti akses tanpa izin, pengambilalihan kendali, atau pelanggaran privasi, sangat dilarang berdasarkan pedoman kami. Para pengembang tidak bertanggung jawab atas penyalahgunaan aplikasi ini.
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/I2I04VU09)
+Mari mengobrol bersama kami: [Discord](https://discord.gg/nDceKgxnkV) | [Twitter](https://twitter.com/rustdesk) | [Reddit](https://www.reddit.com/r/rustdesk) | [YouTube](https://www.youtube.com/@rustdesk)
+
+[![RustDesk Server Pro](https://img.shields.io/badge/RustDesk%20Server%20Pro-Fitur%20Lanjutan-blue)](https://rustdesk.com/pricing.html)
 
 [![Open Bounties](https://img.shields.io/endpoint?url=https%3A%2F%2Fconsole.algora.io%2Fapi%2Fshields%2Frustdesk%2Fbounties%3Fstatus%3Dopen)](https://console.algora.io/org/rustdesk/bounties?status=open)
 
@@ -30,6 +34,9 @@ RustDesk mengajak semua orang untuk ikut berkontribusi. Lihat [`docs/CONTRIBUTIN
 [<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
     alt="Get it on F-Droid"
     height="80">](https://f-droid.org/en/packages/com.carriez.flutter_hbb)
+[<img src="https://flathub.org/api/badge?svg&locale=en"
+    alt="Get it on Flathub"
+    height="80">](https://flathub.org/apps/com.rustdesk.RustDesk)
 
 ## Dependensi
 
@@ -154,7 +161,7 @@ Harap pastikan bahwa kamu menjalankan perintah ini dari repositori root RustDesk
 - **[src/client.rs](https://github.com/rustdesk/rustdesk/tree/master/src/client.rs)**: start a peer connection
 - **[src/rendezvous_mediator.rs](https://github.com/rustdesk/rustdesk/tree/master/src/rendezvous_mediator.rs)**: Komunikasi dengan [rustdesk-server](https://github.com/rustdesk/rustdesk-server), menunggu untuk remote direct (TCP hole punching) atau relayed connection
 - **[src/platform](https://github.com/rustdesk/rustdesk/tree/master/src/platform)**: kode khusus platform
-
+- **[flutter](https://github.com/rustdesk/rustdesk/tree/master/flutter)**: kode Flutter untuk platform desktop dan perangkat seluler
 ## Snapshots
 
 ![image](https://user-images.githubusercontent.com/71636191/113112362-ae4deb80-923b-11eb-957d-ff88daad4f06.png)

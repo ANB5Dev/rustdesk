@@ -381,6 +381,9 @@ pub type pcCliprdrTempDirectory = ::std::option::Option<
 pub type pcNotifyClipboardMsg = ::std::option::Option<
     unsafe extern "C" fn(connID: UINT32, msg: *const NOTIFICATION_MESSAGE) -> UINT,
 >;
+pub type pcHandleClipboardFiles = ::std::option::Option<
+    unsafe extern "C" fn(connID: UINT32, nFiles: size_t, fileNames: *mut *mut WCHAR) -> UINT,
+>;
 pub type pcCliprdrClientFormatList = ::std::option::Option<
     unsafe extern "C" fn(
         context: *mut CliprdrClientContext,
@@ -492,6 +495,7 @@ pub struct _cliprdr_client_context {
     pub MonitorReady: pcCliprdrMonitorReady,
     pub TempDirectory: pcCliprdrTempDirectory,
     pub NotifyClipboardMsg: pcNotifyClipboardMsg,
+    pub HandleClipboardFiles: pcHandleClipboardFiles,
     pub ClientFormatList: pcCliprdrClientFormatList,
     pub ServerFormatList: pcCliprdrServerFormatList,
     pub ClientFormatListResponse: pcCliprdrClientFormatListResponse,
@@ -517,6 +521,8 @@ extern "C" {
     pub(crate) fn init_cliprdr(context: *mut CliprdrClientContext) -> BOOL;
     pub(crate) fn uninit_cliprdr(context: *mut CliprdrClientContext) -> BOOL;
     pub(crate) fn empty_cliprdr(context: *mut CliprdrClientContext, connID: UINT32) -> BOOL;
+    #[cfg(test)]
+    fn wf_cliprdr_file_descriptor_name_valid(name: *const WCHAR) -> BOOL;
 }
 
 unsafe impl Send for CliprdrClientContext {}
@@ -529,6 +535,7 @@ impl CliprdrClientContext {
         enable_others: bool,
         response_wait_timeout_secs: u32,
         notify_callback: pcNotifyClipboardMsg,
+        handle_clipboard_files: pcHandleClipboardFiles,
         client_format_list: pcCliprdrClientFormatList,
         client_format_list_response: pcCliprdrClientFormatListResponse,
         client_format_data_request: pcCliprdrClientFormatDataRequest,
@@ -547,6 +554,7 @@ impl CliprdrClientContext {
             MonitorReady: None,
             TempDirectory: None,
             NotifyClipboardMsg: notify_callback,
+            HandleClipboardFiles: handle_clipboard_files,
             ClientFormatList: client_format_list,
             ServerFormatList: None,
             ClientFormatListResponse: client_format_list_response,
@@ -758,6 +766,9 @@ pub fn server_clip_file(
                 ret
             );
         }
+        ClipboardFile::Files { .. } => {
+            // unreachable
+        }
     }
     ret
 }
@@ -967,6 +978,7 @@ pub fn create_cliprdr_context(
         enable_others,
         response_wait_timeout_secs,
         Some(notify_callback),
+        Some(handle_clipboard_files),
         Some(client_format_list),
         Some(client_format_list_response),
         Some(client_format_data_request),
@@ -1014,6 +1026,61 @@ extern "C" fn notify_callback(conn_id: UINT32, msg: *const NOTIFICATION_MESSAGE)
                 return ERR_CODE_INVALID_PARAMETER;
             }
         }
+    };
+    // no need to handle result here
+    allow_err!(send_data(conn_id as _, data));
+
+    0
+}
+
+extern "C" fn handle_clipboard_files(
+    conn_id: UINT32,
+    n_files: size_t,
+    file_names: *mut *mut WCHAR,
+) -> UINT {
+    if n_files == 0 {
+        return 0;
+    }
+
+    let data = unsafe {
+        let mut files = Vec::new();
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStringExt;
+        for i in 0..n_files {
+            let file_name_ptr = *file_names.offset(i as isize);
+            if !file_name_ptr.is_null() {
+                let mut len = 0;
+                while *file_name_ptr.offset(len) != 0 {
+                    len += 1;
+                }
+                let slice = std::slice::from_raw_parts(file_name_ptr, len as usize);
+                let os_string = OsString::from_wide(slice);
+                match os_string.to_str() {
+                    Some(n) => match std::fs::metadata(n) {
+                        Ok(meta) => {
+                            if meta.is_file() {
+                                files.push((n.to_owned(), meta.len()));
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "handle_clipboard_files: Failed to get metadata for file '{}': {}",
+                                n,
+                                e
+                            );
+                        }
+                    },
+                    None => {
+                        log::warn!("handle_clipboard_files: Failed to convert file name to UTF-8");
+                    }
+                };
+            }
+        }
+        if files.is_empty() {
+            return 0;
+        }
+
+        ClipboardFile::Files { files }
     };
     // no need to handle result here
     allow_err!(send_data(conn_id as _, data));
@@ -1258,5 +1325,79 @@ extern "C" fn client_file_contents_response(
             log::error!("failed to send file contents response: {:?}", e);
             ERR_CODE_SEND_MSG
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::iter::once;
+
+    const FILE_NAME_CODE_UNITS: usize = 260;
+    const FILE_NAME_CASES: &[(&str, bool)] = &[
+        ("", false),
+        ("/absolute", false),
+        ("C:\\absolute", false),
+        ("dir\\..\\payload", false),
+        ("dir//payload", false),
+        ("file.", false),
+        ("file ", false),
+        (" report.txt", false),
+        (" NUL.txt", false),
+        ("dir\\ nested.txt", false),
+        ("CON", false),
+        ("nul.txt", false),
+        ("dir\\AUX.log", false),
+        ("PRN.tar.gz", false),
+        ("com1", false),
+        ("COM\u{00b9}.txt", false),
+        ("COM\u{00b2}.txt", false),
+        ("lpt9.log", false),
+        ("dir/LPT\u{00b3}", false),
+        ("CONIN$", false),
+        ("dir\\conout$", false),
+        ("CLOCK$", false),
+        ("bad<name", false),
+        ("bad>name", false),
+        ("bad:name", false),
+        ("bad\"name", false),
+        ("bad|name", false),
+        ("bad?name", false),
+        ("bad*name", false),
+        ("bad\u{0001}name", false),
+        ("dir\\bad\u{001f}name", false),
+        ("normal.txt", true),
+        (".gitignore", true),
+        ("dir\\nested file.txt", true),
+        ("dir/nested file.txt", true),
+        ("com10.txt", true),
+        ("auxiliary.log", true),
+        ("clock$.txt", true),
+        ("conin$.txt", true),
+    ];
+
+    fn file_descriptor_name_valid(name: &str) -> bool {
+        let wide_name: Vec<_> = name.encode_utf16().chain(once(0)).collect();
+        unsafe { wf_cliprdr_file_descriptor_name_valid(wide_name.as_ptr()) == TRUE }
+    }
+
+    #[test]
+    fn validates_file_descriptor_names() {
+        for &(name, expected) in FILE_NAME_CASES {
+            assert_eq!(
+                file_descriptor_name_valid(name),
+                expected,
+                "unexpected validity for {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_non_terminated_file_descriptor_name() {
+        let wide_name = [WCHAR::from(b'a'); FILE_NAME_CODE_UNITS];
+        assert_eq!(
+            unsafe { wf_cliprdr_file_descriptor_name_valid(wide_name.as_ptr()) },
+            FALSE
+        );
     }
 }

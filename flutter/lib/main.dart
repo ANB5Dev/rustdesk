@@ -14,6 +14,7 @@ import 'package:flutter_hbb/desktop/screen/desktop_file_transfer_screen.dart';
 import 'package:flutter_hbb/desktop/screen/desktop_view_camera_screen.dart';
 import 'package:flutter_hbb/desktop/screen/desktop_port_forward_screen.dart';
 import 'package:flutter_hbb/desktop/screen/desktop_remote_screen.dart';
+import 'package:flutter_hbb/desktop/screen/desktop_terminal_screen.dart';
 import 'package:flutter_hbb/desktop/widgets/refresh_wrapper.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
@@ -26,10 +27,8 @@ import 'common.dart';
 import 'consts.dart';
 import 'mobile/pages/home_page.dart';
 import 'mobile/pages/server_page.dart';
+import 'mobile/widgets/deploy_dialog.dart';
 import 'models/platform_model.dart';
-
-import 'package:flutter_hbb/plugin/handlers.dart'
-    if (dart.library.html) 'package:flutter_hbb/web/plugin/handlers.dart';
 
 /// Basic window and launch properties.
 int? kWindowId;
@@ -91,6 +90,12 @@ Future<void> main(List<String> args) async {
           kAppTypeDesktopPortForward,
         );
         break;
+      case WindowType.Terminal:
+        desktopType = DesktopType.terminal;
+        runMultiWindow(
+          argument,
+          kAppTypeDesktopTerminal,
+        );
       default:
         break;
     }
@@ -133,16 +138,20 @@ void runMainApp(bool startService) async {
   await bind.mainCheckConnectStatus();
   if (startService) {
     gFFI.serverModel.startService();
-    bind.pluginSyncUi(syncTo: kAppTypeMain);
-    bind.pluginListReload();
   }
   await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
   gFFI.userModel.refreshCurrentUser();
   runApp(App());
 
+  bool? alwaysOnTop;
+  if (isDesktop) {
+    alwaysOnTop =
+        bind.mainGetBuildinOption(key: "main-window-always-on-top") == 'Y';
+  }
+
   // Set window option.
-  WindowOptions windowOptions =
-      getHiddenTitleBarWindowOptions(isMainWindow: true);
+  WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
+      isMainWindow: true, alwaysOnTop: alwaysOnTop);
   windowManager.waitUntilReadyToShow(windowOptions, () async {
     // Restore the location of the main window before window hide or show.
     await restoreWindowPosition(WindowType.Main);
@@ -211,6 +220,11 @@ void runMultiWindow(
         params: argument,
       );
       break;
+    case kAppTypeDesktopTerminal:
+      widget = DesktopTerminalScreen(
+        params: argument,
+      );
+      break;
     default:
       // no such appType
       exit(0);
@@ -256,6 +270,9 @@ void runMultiWindow(
       break;
     case kAppTypeDesktopPortForward:
       await restoreWindowPosition(WindowType.PortForward, windowId: kWindowId!);
+      break;
+    case kAppTypeDesktopTerminal:
+      await restoreWindowPosition(WindowType.Terminal, windowId: kWindowId!);
       break;
     default:
       // no such appType
@@ -548,17 +565,22 @@ _registerEventHandler() {
       reloadAllWindows();
     });
   }
-  // Register native handlers.
-  if (isDesktop) {
-    platformFFI.registerEventHandler('native_ui', 'native_ui', (evt) async {
-      NativeUiHandler.instance.onEvent(evt);
+  if (isAndroid) {
+    platformFFI.registerEventHandler(
+        'android_needs_deploy', 'android_needs_deploy', (_) async {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        showDeployPromptDialog();
+      });
     });
   }
 }
 
 Widget keyListenerBuilder(BuildContext context, Widget? child) {
   return RawKeyboardListener(
-    focusNode: FocusNode(),
+    // Keep this keyboard-only wrapper from taking focus away from web inputs.
+    includeSemantics: !isWeb,
+    // `skipTraversal: isWeb` is to fix "Bad state: RenderBox was not laid out: minified:aeL#c19e4"
+    focusNode: FocusNode(skipTraversal: isWeb),
     child: child ?? Container(),
     onKey: (RawKeyEvent event) {
       if (event.logicalKey == LogicalKeyboardKey.shiftLeft) {

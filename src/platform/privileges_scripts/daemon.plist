@@ -4,14 +4,16 @@
     <dict>
         <key>Label</key>
         <string>com.carriez.RustDesk_service</string>
+
+	<key>AssociatedBundleIdentifiers</key>
+	<string>com.carriez.rustdesk</string>
+    
         <key>KeepAlive</key>
         <true/>
         <key>ThrottleInterval</key>
         <integer>1</integer>
         <key>ProgramArguments</key>
         <array>
-        <string>/bin/sh</string>
-        <string>-c</string>
         <string>/Applications/RustDesk.app/Contents/MacOS/service</string>
         </array>
         <key>RunAtLoad</key>
@@ -19,8 +21,8 @@
         <key>WorkingDirectory</key>
         <string>/Applications/RustDesk.app/Contents/MacOS/</string>
         <key>StandardErrorPath</key>
-        <string>/tmp/rustdesk_service.err</string>
+        <string>/var/log/rustdesk_service.err</string>
         <key>StandardOutPath</key>
-        <string>/tmp/rustdesk_service.out</string>
+        <string>/var/log/rustdesk_service.out</string>
     </dict>
 </plist>

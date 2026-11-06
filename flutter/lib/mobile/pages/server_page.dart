@@ -13,11 +13,12 @@ import '../../common/widgets/dialog.dart';
 import '../../consts.dart';
 import '../../models/platform_model.dart';
 import '../../models/server_model.dart';
+import '../../utils/android_documents.dart';
 import 'home_page.dart';
 
 class ServerPage extends StatefulWidget implements PageShape {
   @override
-  final title = translate("Share Screen");
+  final title = translate("Share screen");
 
   @override
   final icon = const Icon(Icons.mobile_screen_share);
@@ -56,13 +57,18 @@ class _DropDownAction extends StatelessWidget {
           final verificationMethod = gFFI.serverModel.verificationMethod;
           final showPasswordOption = approveMode != 'click';
           final isApproveModeFixed = isOptionFixed(kOptionApproveMode);
+          final isNumericOneTimePasswordFixed =
+              isOptionFixed(kOptionAllowNumericOneTimePassword);
+          final isAllowNumericOneTimePassword =
+              gFFI.serverModel.allowNumericOneTimePassword;
           return [
-            PopupMenuItem(
-              enabled: gFFI.serverModel.connectStatus > 0,
-              value: "changeID",
-              child: Text(translate("Change ID")),
-            ),
-            const PopupMenuDivider(),
+            if (!isChangeIdDisabled())
+              PopupMenuItem(
+                enabled: gFFI.serverModel.connectStatus > 0,
+                value: "changeID",
+                child: Text(translate("Change ID")),
+              ),
+            if (!isChangeIdDisabled()) const PopupMenuDivider(),
             PopupMenuItem(
               value: 'AcceptSessionsViaPassword',
               child: listTile(
@@ -83,7 +89,8 @@ class _DropDownAction extends StatelessWidget {
             ),
             if (showPasswordOption) const PopupMenuDivider(),
             if (showPasswordOption &&
-                verificationMethod != kUseTemporaryPassword)
+                verificationMethod != kUseTemporaryPassword &&
+                !isChangePermanentPasswordDisabled())
               PopupMenuItem(
                 value: "setPermanentPassword",
                 child: Text(translate("Set permanent password")),
@@ -93,6 +100,14 @@ class _DropDownAction extends StatelessWidget {
               PopupMenuItem(
                 value: "setTemporaryPasswordLength",
                 child: Text(translate("One-time password length")),
+              ),
+            if (showPasswordOption &&
+                verificationMethod != kUsePermanentPassword)
+              PopupMenuItem(
+                value: "allowNumericOneTimePassword",
+                child: listTile(translate("Numeric one-time password"),
+                    isAllowNumericOneTimePassword),
+                enabled: !isNumericOneTimePasswordFixed,
               ),
             if (showPasswordOption) const PopupMenuDivider(),
             if (showPasswordOption)
@@ -124,6 +139,9 @@ class _DropDownAction extends StatelessWidget {
             setPasswordDialog();
           } else if (value == "setTemporaryPasswordLength") {
             setTemporaryPasswordLengthDialog(gFFI.dialogManager);
+          } else if (value == "allowNumericOneTimePassword") {
+            gFFI.serverModel.switchAllowNumericOneTimePassword();
+            gFFI.serverModel.updatePasswordModel();
           } else if (value == kUsePermanentPassword ||
               value == kUseTemporaryPassword ||
               value == kUseBothPasswords) {
@@ -133,7 +151,12 @@ class _DropDownAction extends StatelessWidget {
             }
 
             if (value == kUsePermanentPassword &&
-                (await bind.mainGetPermanentPassword()).isEmpty) {
+                (await bind.mainGetCommon(key: "permanent-password-set")) !=
+                    "true") {
+              if (isChangePermanentPasswordDisabled()) {
+                callback();
+                return;
+              }
               setPasswordDialog(notEmptyCallback: callback);
             } else {
               callback();
@@ -203,12 +226,6 @@ class _ServerPageState extends State<ServerPage> {
 
 void checkService() async {
   gFFI.invokeMethod("check_service");
-  // for Android 10/11, request MANAGE_EXTERNAL_STORAGE permission from system setting page
-  if (AndroidPermissionManager.isWaitingFile() && !gFFI.serverModel.fileOk) {
-    AndroidPermissionManager.complete(kManageExternalStorage,
-        await AndroidPermissionManager.check(kManageExternalStorage));
-    debugPrint("file permission finished");
-  }
 }
 
 class ServiceNotRunningNotification extends StatelessWidget {
@@ -557,14 +574,62 @@ class PermissionChecker extends StatefulWidget {
 }
 
 class _PermissionCheckerState extends State<PermissionChecker> {
+  static const _folderOptionIndent = 16.0;
+
+  Future<void> _selectFolder() async {
+    try {
+      final workspace = await gFFI.dialogManager.show<bool>(
+          (_, close, __) => CustomAlertDialog(
+                title: Text(translate('Change Path')),
+                content: Column(mainAxisSize: MainAxisSize.min, children: [
+                  ListTile(
+                    title: Text(translate('RustDesk storage')),
+                    onTap: () => close(true),
+                  ),
+                  ListTile(
+                    title: Text('${translate('Other folders')}…'),
+                    onTap: () => close(false),
+                  ),
+                ]),
+              ),
+          backDismiss: true,
+          clickMaskDismiss: true);
+      if (workspace == null) return;
+      if (workspace) {
+        showToast(await AndroidDocuments.workspace(share: true));
+        await bind.setLocalFlutterOption(
+            k: 'android-file-transfer-folder-setup', v: 'Y');
+        return;
+      }
+      final selected = await AndroidDocuments.selectFolder(share: true);
+      if (selected != null) {
+        await bind.setLocalFlutterOption(
+            k: 'android-file-transfer-folder-setup', v: 'Y');
+        showToast(AndroidDocuments.displayPath(selected['path'] as String));
+      }
+    } catch (error) {
+      showToast(error.toString());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final serverModel = Provider.of<ServerModel>(context);
     final hasAudioPermission = androidVersion >= 30;
+    final hideStopService = isAndroid &&
+        bind.mainGetBuildinOption(key: kOptionHideStopService) == 'Y';
+    final allowPermChangeInAcceptWindow = option2bool(
+        kOptionEnablePermChangeInAcceptWindow,
+        bind.mainGetBuildinOption(
+          key: kOptionEnablePermChangeInAcceptWindow,
+        ));
+    final permissionChangeLocked = isAndroid &&
+        serverModel.clients.any((c) => !c.disconnected) &&
+        !allowPermChangeInAcceptWindow;
     return PaddingCard(
         title: translate("Permissions"),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          serverModel.mediaOk
+          serverModel.mediaOk && !hideStopService
               ? ElevatedButton.icon(
                       style: ButtonStyle(
                           backgroundColor:
@@ -574,21 +639,43 @@ class _PermissionCheckerState extends State<PermissionChecker> {
                       label: Text(translate("Stop service")))
                   .marginOnly(bottom: 8)
               : SizedBox.shrink(),
+          if (!hideStopService || !serverModel.mediaOk)
+            PermissionRow(
+                translate("Screen Capture"),
+                serverModel.mediaOk,
+                !serverModel.mediaOk &&
+                        gFFI.userModel.userName.value.isEmpty &&
+                        bind.mainGetLocalOption(key: "show-scam-warning") != "N"
+                    ? () => showScamWarning(context, serverModel)
+                    : serverModel.toggleService),
           PermissionRow(
-              translate("Screen Capture"),
-              serverModel.mediaOk,
-              !serverModel.mediaOk &&
-                      gFFI.userModel.userName.value.isEmpty &&
-                      bind.mainGetLocalOption(key: "show-scam-warning") != "N"
-                  ? () => showScamWarning(context, serverModel)
-                  : serverModel.toggleService),
-          PermissionRow(translate("Input Control"), serverModel.inputOk,
-              serverModel.toggleInput),
-          PermissionRow(translate("Transfer file"), serverModel.fileOk,
-              serverModel.toggleFile),
+            translate("Input Control"),
+            serverModel.inputOk,
+            serverModel.toggleInput,
+          ),
+          PermissionRow(
+            translate("Transfer file"),
+            serverModel.fileOk,
+            serverModel.toggleFile,
+            enabled: !permissionChangeLocked,
+          ),
+          if (isAndroid &&
+              !bind.isDisableSettings() &&
+              !bind.isOutgoingOnly() &&
+              bind.mainGetBuildinOption(key: kOptionHideSecuritySetting) != 'Y')
+            ListTile(
+              dense: true,
+              contentPadding:
+                  const EdgeInsetsDirectional.only(start: _folderOptionIndent),
+              title: Text(translate('Change Path')),
+              trailing: const Icon(Icons.chevron_right),
+              enabled: !permissionChangeLocked,
+              onTap: _selectFolder,
+            ),
           hasAudioPermission
               ? PermissionRow(translate("Audio Capture"), serverModel.audioOk,
-                  serverModel.toggleAudio)
+                  serverModel.toggleAudio,
+                  enabled: !permissionChangeLocked)
               : Row(children: [
                   Icon(Icons.info_outline).marginOnly(right: 15),
                   Expanded(
@@ -597,19 +684,25 @@ class _PermissionCheckerState extends State<PermissionChecker> {
                     style: const TextStyle(color: MyTheme.darkGray),
                   ))
                 ]),
-          PermissionRow(translate("Enable clipboard"), serverModel.clipboardOk,
-              serverModel.toggleClipboard),
+          PermissionRow(
+            translate("Enable clipboard"),
+            serverModel.clipboardOk,
+            serverModel.toggleClipboard,
+            enabled: !permissionChangeLocked,
+          ),
         ]));
   }
 }
 
 class PermissionRow extends StatelessWidget {
-  const PermissionRow(this.name, this.isOk, this.onPressed, {Key? key})
+  const PermissionRow(this.name, this.isOk, this.onPressed,
+      {Key? key, this.enabled = true})
       : super(key: key);
 
   final String name;
   final bool isOk;
   final VoidCallback onPressed;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
@@ -618,9 +711,11 @@ class PermissionRow extends StatelessWidget {
         contentPadding: EdgeInsets.all(0),
         title: Text(name),
         value: isOk,
-        onChanged: (bool value) {
-          onPressed();
-        });
+        onChanged: enabled
+            ? (bool value) {
+                onPressed();
+              }
+            : null);
   }
 }
 
@@ -633,9 +728,8 @@ class ConnectionManager extends StatelessWidget {
     return Column(
         children: serverModel.clients
             .map((client) => PaddingCard(
-                title: translate(client.isFileTransfer
-                    ? "File Connection"
-                    : "Screen Connection"),
+                title: translate(
+                    client.isFileTransfer ? "Transfer file" : "Share screen"),
                 titleIcon: client.isFileTransfer
                     ? Icon(Icons.folder_outlined)
                     : Icon(Icons.mobile_screen_share),
@@ -821,13 +915,7 @@ class ClientInfo extends StatelessWidget {
                   flex: -1,
                   child: Padding(
                       padding: const EdgeInsets.only(right: 12),
-                      child: CircleAvatar(
-                          backgroundColor: str2color(
-                              client.name,
-                              Theme.of(context).brightness == Brightness.light
-                                  ? 255
-                                  : 150),
-                          child: Text(client.name[0])))),
+                      child: _buildAvatar(context))),
               Expanded(
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -839,6 +927,20 @@ class ClientInfo extends StatelessWidget {
             ],
           ),
         ]));
+  }
+
+  Widget _buildAvatar(BuildContext context) {
+    final fallback = CircleAvatar(
+      backgroundColor: str2color(client.name,
+          Theme.of(context).brightness == Brightness.light ? 255 : 150),
+      child: Text(client.name.isNotEmpty ? client.name[0] : '?'),
+    );
+    return buildAvatarWidget(
+          avatar: client.avatar,
+          size: 40,
+          fallback: fallback,
+        ) ??
+        fallback;
   }
 }
 

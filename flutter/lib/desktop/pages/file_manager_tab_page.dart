@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/common/widgets/dialog.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:flutter_hbb/desktop/pages/file_manager_page.dart';
@@ -40,11 +41,20 @@ class _FileManagerTabPageState extends State<FileManagerTabPage> {
         label: params['id'],
         selectedIcon: selectedIcon,
         unselectedIcon: unselectedIcon,
-        onTabCloseButton: () => tabController.closeBy(params['id']),
+        onTabCloseButton: () async {
+          if (await desktopTryShowTabAuditDialogCloseCancelled(
+            id: params['id'],
+            tabController: tabController,
+          )) {
+            return;
+          }
+          tabController.closeBy(params['id']);
+        },
         page: FileManagerPage(
           key: ValueKey(params['id']),
           id: params['id'],
           password: params['password'],
+          loginMethod: params['loginMethod'] ?? '',
           isSharedPassword: params['isSharedPassword'],
           tabController: tabController,
           forceRelay: params['forceRelay'],
@@ -69,11 +79,20 @@ class _FileManagerTabPageState extends State<FileManagerTabPage> {
             label: id,
             selectedIcon: selectedIcon,
             unselectedIcon: unselectedIcon,
-            onTabCloseButton: () => tabController.closeBy(id),
+            onTabCloseButton: () async {
+              if (await desktopTryShowTabAuditDialogCloseCancelled(
+                id: id,
+                tabController: tabController,
+              )) {
+                return;
+              }
+              tabController.closeBy(id);
+            },
             page: FileManagerPage(
               key: ValueKey(id),
               id: id,
               password: args['password'],
+              loginMethod: args['loginMethod'] ?? '',
               isSharedPassword: args['isSharedPassword'],
               tabController: tabController,
               forceRelay: args['forceRelay'],
@@ -132,6 +151,14 @@ class _FileManagerTabPageState extends State<FileManagerTabPage> {
 
   Future<bool> handleWindowCloseButton() async {
     final connLength = tabController.state.value.tabs.length;
+    if (connLength == 1) {
+      if (await desktopTryShowTabAuditDialogCloseCancelled(
+        id: tabController.state.value.tabs[0].key,
+        tabController: tabController,
+      )) {
+        return false;
+      }
+    }
     if (connLength <= 1) {
       tabController.clear();
       return true;

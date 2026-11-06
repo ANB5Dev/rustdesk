@@ -8,6 +8,7 @@ package com.carriez.flutter_hbb
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Intent
 import android.graphics.Path
 import android.os.Build
 import android.os.Bundle
@@ -49,6 +50,15 @@ const val WHEEL_BUTTON_UP = 34
 const val WHEEL_DOWN = 523331
 const val WHEEL_UP = 963
 
+// src/common.rs MOUSE_TYPE_WHEEL: the controller sends a wheel tick as a
+// MouseEvent with these type bits and the scroll delta in y (y < 0 = down).
+const val MOUSE_TYPE_WHEEL = 3
+
+// Wheel-tick travel for MOUSE_TYPE_WHEEL events. Three quarters of the legacy
+// WHEEL_STEP; tuned on real devices during review (the full 120px felt too
+// far per tick).
+const val MOUSE_WHEEL_STEP = 90
+
 const val TOUCH_SCALE_START = 1
 const val TOUCH_SCALE = 2
 const val TOUCH_SCALE_END = 3
@@ -68,9 +78,19 @@ class InputService : AccessibilityService() {
             get() = ctx != null
     }
 
+    private fun notifyInputState() {
+        val inputState = isOpen.toString()
+        Handler(Looper.getMainLooper()).post {
+            MainActivity.flutterMethodChannel?.invokeMethod(
+                "on_state_changed",
+                mapOf("name" to "input", "value" to inputState)
+            )
+        }
+    }
+
     private val logTag = "input service"
     private var leftIsDown = false
-    private val touchPath = Path()
+    private var touchPath = Path()
     private var stroke: GestureDescription.StrokeDescription? = null
     private var lastTouchGestureStartTime = 0L
     private var mouseX = 0
@@ -91,6 +111,12 @@ class InputService : AccessibilityService() {
 
     private val volumeController: VolumeController by lazy { VolumeController(applicationContext.getSystemService(AUDIO_SERVICE) as AudioManager) }
 
+    /**
+     * Handles a remote mouse event on the gesture path. [mask] is the
+     * button/phase mask of the mouse protocol ([MOUSE_TYPE_WHEEL] ticks carry
+     * the scroll delta in [_y] instead of a position), x/y the screen-space
+     * position. Requires API 24 for the gesture APIs.
+     */
     @RequiresApi(Build.VERSION_CODES.N)
     fun onMouseInput(mask: Int, _x: Int, _y: Int) {
         val x = max(0, _x)
@@ -170,6 +196,38 @@ class InputService : AccessibilityService() {
                 recentActionTask!!.cancel()
                 performGlobalAction(GLOBAL_ACTION_HOME)
             }
+            return
+        }
+
+        // The controller sends a wheel tick as a MouseEvent with the type bits
+        // MOUSE_TYPE_WHEEL (src/common.rs) and the scroll delta in _y
+        // (y < 0 = wheel down); the WHEEL_DOWN/WHEEL_UP masks below are legacy
+        // values that current controllers never send. Gated to API 24+ like
+        // the rest of the gesture path - below that, legacy devices take the
+        // Shizuku backend or a no-op, not this class.
+        if (mask == MOUSE_TYPE_WHEEL && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            // A horizontal tick (the controller sends y = 0 when the
+            // horizontal delta dominates) or a delta truncated to zero is not
+            // a vertical swipe.
+            if (_y == 0) {
+                return
+            }
+            if (mouseY < MOUSE_WHEEL_STEP) {
+                return
+            }
+            val path = Path()
+            path.moveTo(mouseX.toFloat(), mouseY.toFloat())
+            val deltaY = if (_y < 0) -MOUSE_WHEEL_STEP else MOUSE_WHEEL_STEP
+            path.lineTo(mouseX.toFloat(), (mouseY + deltaY).toFloat())
+            val stroke = GestureDescription.StrokeDescription(
+                path,
+                0,
+                WHEEL_DURATION
+            )
+            val builder = GestureDescription.Builder()
+            builder.addStroke(stroke)
+            wheelActionsQueue.offer(builder.build())
+            consumeWheelActions()
             return
         }
 
@@ -278,7 +336,11 @@ class InputService : AccessibilityService() {
     }
 
     private fun startGesture(x: Int, y: Int) {
-        touchPath.reset()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            touchPath.reset()
+        } else {
+            touchPath = Path()
+        }
         touchPath.moveTo(x.toFloat(), y.toFloat())
         lastTouchGestureStartTime = System.currentTimeMillis()
         lastX = x
@@ -294,14 +356,31 @@ class InputService : AccessibilityService() {
         }
         try {
             if (stroke == null) {
-                stroke = GestureDescription.StrokeDescription(
-                    touchPath,
-                    0,
-                    duration,
-                    willContinue
-                )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    stroke = GestureDescription.StrokeDescription(
+                        touchPath,
+                        0,
+                        duration,
+                        willContinue
+                    )
+                } else {
+                    stroke = GestureDescription.StrokeDescription(
+                        touchPath,
+                        0,
+                        duration
+                    )
+                }
             } else {
-                stroke = stroke?.continueStroke(touchPath, 0, duration, willContinue)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    stroke = stroke?.continueStroke(touchPath, 0, duration, willContinue)
+                } else {
+                    stroke = null
+                    stroke = GestureDescription.StrokeDescription(
+                        touchPath,
+                        0,
+                        duration
+                    )
+                }
             }
             stroke?.let {
                 val builder = GestureDescription.Builder()
@@ -316,19 +395,49 @@ class InputService : AccessibilityService() {
 
     @RequiresApi(Build.VERSION_CODES.N)
     private fun continueGesture(x: Int, y: Int) {
-        doDispatchGesture(x, y, true)
-        touchPath.reset()
-        touchPath.moveTo(x.toFloat(), y.toFloat())
-        lastTouchGestureStartTime = System.currentTimeMillis()
-        lastX = x
-        lastY = y
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            doDispatchGesture(x, y, true)
+            touchPath.reset()
+            touchPath.moveTo(x.toFloat(), y.toFloat())
+            lastTouchGestureStartTime = System.currentTimeMillis()
+            lastX = x
+            lastY = y
+        } else {
+            touchPath.lineTo(x.toFloat(), y.toFloat())
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.N)
+    private fun endGestureBelowO(x: Int, y: Int) {
+        try {
+            touchPath.lineTo(x.toFloat(), y.toFloat())
+            var duration = System.currentTimeMillis() - lastTouchGestureStartTime
+            if (duration <= 0) {
+                duration = 1
+            }
+            val stroke = GestureDescription.StrokeDescription(
+                touchPath,
+                0,
+                duration
+            )
+            val builder = GestureDescription.Builder()
+            builder.addStroke(stroke)
+            Log.d(logTag, "end gesture x:$x y:$y time:$duration")
+            dispatchGesture(builder.build(), null, null)
+        } catch (e: Exception) {
+            Log.e(logTag, "endGesture error:$e")
+        }
     }
 
     @RequiresApi(Build.VERSION_CODES.N)
     private fun endGesture(x: Int, y: Int) {
-        doDispatchGesture(x, y, false)
-        touchPath.reset()
-        stroke = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            doDispatchGesture(x, y, false)
+            touchPath.reset()
+            stroke = null
+        } else {
+            endGestureBelowO(x, y)
+        }
     }
 
     @RequiresApi(Build.VERSION_CODES.N)
@@ -665,6 +774,7 @@ class InputService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         ctx = this
+        notifyInputState()
         val info = AccessibilityServiceInfo()
         if (Build.VERSION.SDK_INT >= 33) {
             info.flags = FLAG_INPUT_METHOD_EDITOR or FLAG_RETRIEVE_INTERACTIVE_WINDOWS
@@ -683,7 +793,15 @@ class InputService : AccessibilityService() {
 
     override fun onDestroy() {
         ctx = null
+        // Keep this fallback even though onUnbind usually notifies first.
+        notifyInputState()
         super.onDestroy()
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        ctx = null
+        notifyInputState()
+        return super.onUnbind(intent)
     }
 
     override fun onInterrupt() {}

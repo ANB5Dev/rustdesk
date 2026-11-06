@@ -1,22 +1,31 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_breadcrumb/flutter_breadcrumb.dart';
 import 'package:flutter_hbb/models/file_model.dart';
 import 'package:get/get.dart';
 import 'package:toggle_switch/toggle_switch.dart';
-import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../common.dart';
 import '../../common/widgets/dialog.dart';
+import '../../consts.dart';
+import '../../utils/android_documents.dart';
 
 class FileManagerPage extends StatefulWidget {
   FileManagerPage(
-      {Key? key, required this.id, this.password, this.isSharedPassword})
+      {Key? key,
+      required this.id,
+      this.loginMethod = '',
+      this.password,
+      this.isSharedPassword,
+      this.forceRelay})
       : super(key: key);
   final String id;
+  final String loginMethod;
   final String? password;
   final bool? isSharedPassword;
+  final bool? forceRelay;
 
   @override
   State<StatefulWidget> createState() => _FileManagerPageState();
@@ -67,20 +76,218 @@ class _FileManagerPageState extends State<FileManagerPage> {
       showLocal ? model.localController : model.remoteController;
   FileDirectory get currentDir => currentFileController.directory.value;
   DirectoryOptions get currentOptions => currentFileController.options.value;
+  final _uniqueKey = UniqueKey();
+
+  Future<T> _runAndroidDocumentPicker<T>(Future<T> Function() action) async {
+    gFFI.ffiModel.beginAndroidDocumentPicker();
+    try {
+      return await action();
+    } finally {
+      gFFI.ffiModel.endAndroidDocumentPicker();
+    }
+  }
+
+  Future<void> _importFiles() async {
+    var imported = 0;
+    var failed = false;
+    final importController = currentFileController;
+    final importDirectory = currentDir.path;
+    final importIsWindows = currentOptions.isWindows;
+    try {
+      final selectedFiles = await _runAndroidDocumentPicker(() =>
+          gFFI.invokeMethodWithResult<List<dynamic>>(
+              AndroidChannel.kPickImportFiles));
+      if (selectedFiles == null || selectedFiles.isEmpty) return;
+
+      for (final selected in selectedFiles) {
+        final uri = (selected as Map<dynamic, dynamic>)['uri'] as String?;
+        final selectedName = selected['name'] as String?;
+        final name = selectedName?.replaceAll('\\', '/').split('/').last;
+        if (uri == null ||
+            name == null ||
+            !PathUtil.validName(name, importIsWindows)) {
+          failed = true;
+          continue;
+        }
+        final destination =
+          PathUtil.join(importDirectory, name, importIsWindows);
+        var overwrite = false;
+        if (await File(destination).exists()) {
+          final overwriteResult = await model.showFileConfirmDialog(
+              translate('Overwrite'), destination, false, false);
+          if (overwriteResult == false) break;
+          if (overwriteResult != true) continue;
+          overwrite = true;
+        }
+        try {
+          final success = await gFFI.invokeMethod(
+              AndroidChannel.kImportFile,
+              {'uri': uri, 'path': destination, 'overwrite': overwrite});
+          if (success == true) {
+            imported++;
+          } else {
+            failed = true;
+          }
+        } catch (e) {
+          failed = true;
+          debugPrint('Failed to import $name: $e');
+        }
+      }
+    } catch (e) {
+      failed = true;
+      debugPrint('Failed to select files for import: $e');
+    }
+    await importController.refresh();
+    if (failed) {
+      showToast(translate('Failed'));
+    } else if (imported > 0) {
+      showToast(translate('Successful'));
+    }
+  }
+
+  Future<void> _changeLocalStorage({required bool workspace}) async {
+    try {
+      final path = workspace
+          ? await AndroidDocuments.workspace()
+          : (await AndroidDocuments.selectFolder())?['path'] as String?;
+      if (path == null || !mounted) return;
+      final previousHome = model.localController.homePath;
+      model.localController.homePath = path;
+      try {
+        if (await model.localController.openDirectory(path, isBack: true)) {
+          model.localController.history.clear();
+        } else {
+          model.localController.homePath = previousHome;
+        }
+      } catch (_) {
+        model.localController.homePath = previousHome;
+        rethrow;
+      }
+    } catch (error) {
+      showToast(error.toString());
+    }
+  }
+
+  Future<void> _exportFile(Entry entry) async {
+    try {
+      final exported = await _runAndroidDocumentPicker(() => gFFI
+          .invokeMethod(AndroidChannel.kExportFile, {'path': entry.path}));
+      if (exported == true) {
+        showToast(translate('Successful'));
+      }
+    } catch (e) {
+      debugPrint('Failed to export ${entry.name}: $e');
+      showToast(translate('Failed'));
+    }
+  }
+
+  Future<void> _importFolder() async {
+    final importController = currentFileController;
+    final importDirectory = currentDir.path;
+    final importIsWindows = currentOptions.isWindows;
+    try {
+      final picked = await _runAndroidDocumentPicker(() =>
+          gFFI.invokeMethodWithResult<Map<dynamic, dynamic>>(
+              AndroidChannel.kPickImportDirectory));
+      if (picked == null || picked.isEmpty) return;
+      final uri = picked['uri'] as String?;
+      final name =
+          (picked['name'] as String?)?.replaceAll('\\', '/').split('/').last;
+      if (uri == null ||
+          name == null ||
+          name == '.' ||
+          name == '..' ||
+          !PathUtil.validName(name, importIsWindows)) {
+        showToast(translate('Failed'));
+        return;
+      }
+      final destination = PathUtil.join(importDirectory, name, importIsWindows);
+      final destinationType = await FileSystemEntity.type(destination);
+      var overwrite = false;
+      if (destinationType == FileSystemEntityType.directory) {
+        final overwriteResult = await model.showFileConfirmDialog(
+            translate('Overwrite'), destination, false, false);
+        if (overwriteResult != true) return;
+        overwrite = true;
+      } else if (destinationType != FileSystemEntityType.notFound) {
+        showToast(translate('Failed'));
+        return;
+      }
+      final success = await gFFI.invokeMethod(AndroidChannel.kImportDirectory,
+          {'uri': uri, 'path': destination, 'overwrite': overwrite});
+      if (success == true) {
+        showToast(translate('Successful'));
+      } else {
+        showToast(translate('Failed'));
+      }
+    } catch (e) {
+      debugPrint('Failed to import folder: $e');
+      showToast(translate('Failed'));
+    }
+    await importController.refresh();
+  }
+
+  Future<void> _exportItems(SelectedItems items) async {
+    await _exportPaths(items.items.map((e) => e.path));
+  }
+
+  Future<void> _exportLogs() async {
+    final String home;
+    try {
+      home = await AndroidDocuments.workspace();
+    } catch (error) {
+      showToast(error.toString());
+      return;
+    }
+    final appDir = PathUtil.join(home, appName, false);
+    final paths = [
+      PathUtil.join(appDir, 'Logs', false),
+      PathUtil.join(appDir, 'ScreenRecord', false),
+    ].where((p) => File(p).existsSync() || Directory(p).existsSync()).toList();
+    await _exportPaths(paths, includeDocumentLogs: true);
+  }
+
+  Future<void> _exportPaths(Iterable<String> paths,
+      {bool includeDocumentLogs = false}) async {
+    try {
+      final result = await _runAndroidDocumentPicker(() => gFFI
+              .invokeMethodWithResult<Map<dynamic, dynamic>>(
+                  AndroidChannel.kExportFiles, {
+            'paths': paths.toList(),
+            if (includeDocumentLogs) 'documentLogs': true,
+          }));
+      if (result == null) return;
+      final exported = result['exported'] as int? ?? 0;
+      final failed = result['failed'] as int? ?? 0;
+      if (includeDocumentLogs && exported > 0 && failed > 0) {
+        showToast('${translate('Successful')}: $exported, '
+            '${translate('Failed')}: $failed');
+      } else if (failed > 0 || (includeDocumentLogs && exported == 0)) {
+        showToast(translate('Failed'));
+      } else if (exported > 0) {
+        showToast(translate('Successful'));
+      }
+    } catch (e) {
+      debugPrint('Failed to export paths: $e');
+      showToast(translate('Failed'));
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     gFFI.start(widget.id,
         isFileTransfer: true,
+        loginMethod: widget.loginMethod,
         password: widget.password,
-        isSharedPassword: widget.isSharedPassword);
+        isSharedPassword: widget.isSharedPassword,
+        forceRelay: widget.forceRelay);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       gFFI.dialogManager
           .showLoading(translate('Connecting...'), onCancel: closeConnection);
     });
     gFFI.ffiModel.updateEventListener(gFFI.sessionId, widget.id);
-    WakelockPlus.enable();
+    WakelockManager.enable(_uniqueKey);
   }
 
   @override
@@ -88,8 +295,9 @@ class _FileManagerPageState extends State<FileManagerPage> {
     model.close().whenComplete(() {
       gFFI.close();
       gFFI.dialogManager.dismissAll();
-      WakelockPlus.disable();
+      WakelockManager.disable(_uniqueKey);
     });
+    model.jobController.clear();
     super.dispose();
   }
 
@@ -110,8 +318,7 @@ class _FileManagerPageState extends State<FileManagerPage> {
           leading: Row(children: [
             IconButton(
                 icon: Icon(Icons.close),
-                onPressed: () =>
-                    clientClose(gFFI.sessionId, gFFI.dialogManager)),
+                onPressed: () => clientClose(gFFI.sessionId, gFFI)),
           ]),
           centerTitle: true,
           title: ToggleSwitch(
@@ -142,6 +349,31 @@ class _FileManagerPageState extends State<FileManagerPage> {
                 icon: Icon(Icons.more_vert),
                 itemBuilder: (context) {
                   return [
+                    if (isAndroid && showLocal) ...[
+                      PopupMenuItem(
+                        value: 'workspace',
+                        child: Row(
+                          children: [
+                            Icon(Icons.storage_outlined,
+                                color: Theme.of(context).iconTheme.color),
+                            SizedBox(width: 5),
+                            Text(translate('RustDesk storage')),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'choose_folder',
+                        child: Row(
+                          children: [
+                            Icon(Icons.folder_open_outlined,
+                                color: Theme.of(context).iconTheme.color),
+                            SizedBox(width: 5),
+                            Text('${translate('Other folders')}…'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuDivider(),
+                    ],
                     PopupMenuItem(
                       child: Row(
                         children: [
@@ -153,6 +385,45 @@ class _FileManagerPageState extends State<FileManagerPage> {
                       ),
                       value: "refresh",
                     ),
+                    if (isAndroid && !AndroidDocuments.isPath(currentDir.path))
+                      PopupMenuItem(
+                        enabled: showLocal && currentDir.path.isNotEmpty,
+                        value: "import",
+                        child: Row(
+                          children: [
+                            Icon(Icons.add_to_drive,
+                                color: Theme.of(context).iconTheme.color),
+                            SizedBox(width: 5),
+                            Text(translate("Add"))
+                          ],
+                        ),
+                      ),
+                    if (isAndroid && !AndroidDocuments.isPath(currentDir.path))
+                      PopupMenuItem(
+                        enabled: showLocal && currentDir.path.isNotEmpty,
+                        value: "import_folder",
+                        child: Row(
+                          children: [
+                            Icon(Icons.create_new_folder_outlined,
+                                color: Theme.of(context).iconTheme.color),
+                            SizedBox(width: 5),
+                            Text(translate("Import Folder"))
+                          ],
+                        ),
+                      ),
+                    if (isAndroid)
+                      PopupMenuItem(
+                        enabled: showLocal && currentDir.path.isNotEmpty,
+                        value: "export_logs",
+                        child: Row(
+                          children: [
+                            Icon(Icons.article_outlined,
+                                color: Theme.of(context).iconTheme.color),
+                            SizedBox(width: 5),
+                            Text(translate("Export Logs"))
+                          ],
+                        ),
+                      ),
                     PopupMenuItem(
                       enabled: currentDir.path != "/",
                       child: Row(
@@ -195,8 +466,16 @@ class _FileManagerPageState extends State<FileManagerPage> {
                   ];
                 },
                 onSelected: (v) {
-                  if (v == "refresh") {
+                  if (v == 'workspace' || v == 'choose_folder') {
+                    _changeLocalStorage(workspace: v == 'workspace');
+                  } else if (v == "refresh") {
                     currentFileController.refresh();
+                  } else if (v == "import") {
+                    _importFiles();
+                  } else if (v == "import_folder") {
+                    _importFolder();
+                  } else if (v == "export_logs") {
+                    _exportLogs();
                   } else if (v == "select") {
                     model.localController.selectedItems.clear();
                     model.remoteController.selectedItems.clear();
@@ -294,6 +573,25 @@ class _FileManagerPageState extends State<FileManagerPage> {
                 setState(() {});
               },
               actions: [
+                if (isAndroid &&
+                    !AndroidDocuments.isPath(currentDir.path) &&
+                    selectedItems?.isLocal == true &&
+                    selectedItems?.items.isNotEmpty == true) ...[
+                  if (selectedItems!.items.length == 1 &&
+                      selectedItems!.items.single.isFile)
+                    IconButton(
+                      tooltip: translate("Save as"),
+                      icon: Icon(Icons.save_alt),
+                      onPressed: () =>
+                          _exportFile(selectedItems!.items.single),
+                    )
+                  else
+                    IconButton(
+                      tooltip: translate("Export"),
+                      icon: Icon(Icons.drive_folder_upload),
+                      onPressed: () => _exportItems(selectedItems!),
+                    ),
+                ],
                 IconButton(
                   icon: Icon(Icons.compare_arrows),
                   onPressed: () => setState(() => showLocal = !showLocal),
@@ -349,15 +647,20 @@ class _FileManagerPageState extends State<FileManagerPage> {
         return Offstage();
       }
 
-      switch (jobTable.last.state) {
+      // Find the first job that is in progress (the one actually transferring data)
+      // Rust backend processes jobs sequentially, so the first inProgress job is the active one
+      final activeJob = jobTable
+              .firstWhereOrNull((job) => job.state == JobState.inProgress) ??
+          jobTable.last;
+
+      switch (activeJob.state) {
         case JobState.inProgress:
           return BottomSheetBody(
             leading: CircularProgressIndicator(),
             title: translate("Waiting"),
-            text:
-                "${translate("Speed")}:  ${readableFileSize(jobTable.last.speed)}/s",
+            text: "${readableFileSize(activeJob.speed)}/s",
             onCanceled: () {
-              model.jobController.cancelJob(jobTable.last.id);
+              model.jobController.cancelJob(activeJob.id);
               jobTable.clear();
             },
           );
@@ -365,7 +668,7 @@ class _FileManagerPageState extends State<FileManagerPage> {
           return BottomSheetBody(
             leading: Icon(Icons.check),
             title: "${translate("Successful")}!",
-            text: jobTable.last.display(),
+            text: activeJob.display(),
             onCanceled: () => jobTable.clear(),
           );
         case JobState.error:
@@ -422,6 +725,7 @@ class FileManagerView extends StatefulWidget {
 class _FileManagerViewState extends State<FileManagerView> {
   final _listScrollController = ScrollController();
   final _breadCrumbScroller = ScrollController();
+  late final ascending = Rx<bool>(controller.sortAscending);
 
   bool get isLocal => widget.controller.isLocal;
   FileController get controller => widget.controller;
@@ -633,7 +937,17 @@ class _FileManagerViewState extends State<FileManagerView> {
                             ))
                         .toList();
                   },
-                  onSelected: controller.changeSortStyle),
+                  onSelected: (sortBy) {
+                    // If selecting the same sort option, flip the order
+                    // If selecting a different sort option, use ascending order
+                    if (controller.sortBy.value == sortBy) {
+                      ascending.value = !controller.sortAscending;
+                    } else {
+                      ascending.value = true;
+                    }
+                    controller.changeSortStyle(sortBy,
+                        ascending: ascending.value);
+                  }),
             ],
           )
         ],
@@ -646,7 +960,7 @@ class _FileManagerViewState extends State<FileManagerView> {
             Padding(
               padding: EdgeInsets.fromLTRB(30, 5, 30, 0),
               child: Text(
-                controller.directory.value.path,
+                AndroidDocuments.displayPath(controller.directory.value.path),
                 style: TextStyle(color: MyTheme.darkGray),
               ),
             ),

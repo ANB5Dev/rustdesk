@@ -9,19 +9,20 @@ use jni::{
     JavaVM,
 };
 
-use hbb_common::{message_proto::MultiClipboards, protobuf::Message};
+use base::message_proto::MultiClipboards;
+use hbb_common::protobuf::Message;
 use jni::errors::{Error as JniError, Result as JniResult};
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use std::ops::Not;
 use std::os::raw::c_void;
-use std::sync::atomic::{AtomicPtr, Ordering::SeqCst};
 use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 lazy_static! {
     static ref JVM: RwLock<Option<JavaVM>> = RwLock::new(None);
     static ref MAIN_SERVICE_CTX: RwLock<Option<GlobalRef>> = RwLock::new(None); // MainService -> video service / audio service / info
+    static ref APPLICATION_CONTEXT: RwLock<Option<GlobalRef>> = RwLock::new(None);
     static ref VIDEO_RAW: Mutex<FrameRaw> = Mutex::new(FrameRaw::new("video", MAX_VIDEO_FRAME_TIMEOUT));
     static ref AUDIO_RAW: Mutex<FrameRaw> = Mutex::new(FrameRaw::new("audio", MAX_AUDIO_FRAME_TIMEOUT));
     static ref NDK_CONTEXT_INITED: Mutex<bool> = Default::default();
@@ -36,8 +37,8 @@ const MAX_AUDIO_FRAME_TIMEOUT: Duration = Duration::from_millis(1000);
 
 struct FrameRaw {
     name: &'static str,
-    ptr: AtomicPtr<u8>,
-    len: usize,
+    data: Vec<u8>,
+    ready: bool,
     last_update: Instant,
     timeout: Duration,
     enable: bool,
@@ -47,8 +48,8 @@ impl FrameRaw {
     fn new(name: &'static str, timeout: Duration) -> Self {
         FrameRaw {
             name,
-            ptr: AtomicPtr::default(),
-            len: 0,
+            data: Vec::new(),
+            ready: false,
             last_update: Instant::now(),
             timeout,
             enable: false,
@@ -57,49 +58,38 @@ impl FrameRaw {
 
     fn set_enable(&mut self, value: bool) {
         self.enable = value;
-        self.ptr.store(std::ptr::null_mut(), SeqCst);
-        self.len = 0;
+        self.ready = false;
+        self.data = Vec::new();
     }
 
     fn update(&mut self, data: *mut u8, len: usize) {
-        if self.enable.not() {
+        if self.enable.not() || data.is_null() || len == 0 {
             return;
         }
-        self.len = len;
-        self.ptr.store(data, SeqCst);
+        let src = unsafe { std::slice::from_raw_parts(data, len) };
+        self.data.clear();
+        self.data.extend_from_slice(src);
+        self.ready = true;
         self.last_update = Instant::now();
     }
 
-    // take inner data as slice
-    // release when success
     fn take<'a>(&mut self, dst: &mut Vec<u8>, last: &mut Vec<u8>) -> Option<()> {
-        if self.enable.not() {
+        if self.enable.not() || !self.ready {
             return None;
         }
-        let ptr = self.ptr.load(SeqCst);
-        if ptr.is_null() || self.len == 0 {
-            None
-        } else {
-            if self.last_update.elapsed() > self.timeout {
-                log::trace!("Failed to take {} raw,timeout!", self.name);
-                return None;
-            }
-            let slice = unsafe { std::slice::from_raw_parts(ptr, self.len) };
-            self.release();
-            if last.len() == slice.len() && crate::would_block_if_equal(last, slice).is_err() {
-                return None;
-            }
-            dst.resize(slice.len(), 0);
-            unsafe {
-                std::ptr::copy_nonoverlapping(slice.as_ptr(), dst.as_mut_ptr(), slice.len());
-            }
-            Some(())
+        if self.last_update.elapsed() > self.timeout {
+            log::trace!("Failed to take {} raw,timeout!", self.name);
+            return None;
         }
-    }
-
-    fn release(&mut self) {
-        self.len = 0;
-        self.ptr.store(std::ptr::null_mut(), SeqCst);
+        self.ready = false;
+        // Never true: `last` starts empty and only `would_block_if_equal` fills it. Left off on
+        // purpose: Android sends a frame only when the screen recomposes, so repeats are rare.
+        if last.len() == self.data.len() && crate::would_block_if_equal(last, &self.data).is_err()
+        {
+            return None;
+        }
+        std::mem::swap(dst, &mut self.data);
+        Some(())
     }
 }
 
@@ -462,6 +452,23 @@ fn init_ndk_context(java_vm: *mut c_void, context_jobject: *mut c_void) {
     *lock = true;
 }
 
+fn try_init_rustls_platform_verifier(env: &mut JNIEnv, context_jobject: *mut c_void) {
+    use hbb_common::config::ANDROID_RUSTLS_PLATFORM_VERIFIER_INITIALIZED as INITIALIZED;
+    use std::sync::atomic::Ordering;
+    let initialized = INITIALIZED.load(Ordering::Relaxed);
+    if !initialized {
+        let ctx_for_rustls = unsafe { JObject::from_raw(context_jobject as jni::sys::jobject) };
+        if let Err(e) =
+            hbb_common::rustls_platform_verifier::android::init_hosted(env, ctx_for_rustls)
+        {
+            log::error!("Failed to initialize rustls-platform-verifier: {:?}", e);
+        } else {
+            INITIALIZED.store(true, Ordering::Relaxed);
+            log::info!("rustls-platform-verifier initialized successfully");
+        }
+    }
+}
+
 // https://cjycode.com/flutter_rust_bridge/guides/how-to/ndk-init
 #[no_mangle]
 pub extern "C" fn JNI_OnLoad(vm: jni::JavaVM, res: *mut std::os::raw::c_void) -> jni::sys::jint {
@@ -470,4 +477,60 @@ pub extern "C" fn JNI_OnLoad(vm: jni::JavaVM, res: *mut std::os::raw::c_void) ->
         init_ndk_context(vm, res);
     }
     jni::JNIVersion::V6.into()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_ffi_FFI_onAppStart(mut env: JNIEnv, _class: JClass, ctx: JObject) {
+    if ctx.is_null() {
+        log::error!("application context is null");
+        return;
+    }
+    if APPLICATION_CONTEXT.read().unwrap().is_some() {
+        log::info!("application context already initialized");
+        return;
+    }
+    if let Ok(jvm) = env.get_java_vm() {
+        if let Ok(context) = env.new_global_ref(ctx) {
+            let java_vm = jvm.get_java_vm_pointer() as *mut c_void;
+            let context_jobject = context.as_obj().as_raw() as *mut c_void;
+            *APPLICATION_CONTEXT.write().unwrap() = Some(context);
+            *JVM.write().unwrap() = Some(jvm);
+            if let Err(error) = base::fs::android::initialize(call_document_storage) {
+                log::error!("Unable to initialize document storage: {}", error);
+            }
+            try_init_rustls_platform_verifier(&mut env, context_jobject);
+        }
+    }
+}
+
+fn call_document_storage(request: &str) -> hbb_common::ResultType<String> {
+    use hbb_common::anyhow::anyhow;
+
+    const LOCAL_REFS: i32 = 4;
+    let context = APPLICATION_CONTEXT
+        .read()
+        .unwrap()
+        .clone()
+        .ok_or(anyhow!("Android application context is unavailable"))?;
+    let jvm = JVM.read().unwrap();
+    let jvm = jvm.as_ref().ok_or(anyhow!("Android VM is unavailable"))?;
+    let mut env = jvm.attach_current_thread_as_daemon()?;
+    let result = env.with_local_frame(LOCAL_REFS, |env| -> JniResult<String> {
+        let request = env.new_string(request)?;
+        let value = env
+            .call_method(
+                &context,
+                "rustDocumentStorage",
+                "(Ljava/lang/String;)Ljava/lang/String;",
+                &[JValue::Object(&JObject::from(request))],
+            )?
+            .l()?;
+        let value = JString::from(value);
+        let value = env.get_string(&value)?;
+        Ok(value.into())
+    });
+    if result.is_err() && env.exception_check()? {
+        env.exception_clear()?;
+    }
+    Ok(result?)
 }

@@ -205,13 +205,14 @@ class WebHomePage extends StatelessWidget {
     }
     bool isFileTransfer = false;
     bool isViewCamera = false;
+    bool isTerminal = false;
     String? id;
     String? password;
+    var loginMethod = '';
     for (int i = 0; i < args.length; i++) {
       switch (args[i]) {
         case '--connect':
         case '--play':
-          isFileTransfer = false;
           id = args[i + 1];
           i++;
           break;
@@ -225,16 +226,35 @@ class WebHomePage extends StatelessWidget {
           id = args[i + 1];
           i++;
           break;
+        case '--terminal':
+          isTerminal = true;
+          id = args[i + 1];
+          i++;
+          break;
+        case '--terminal-admin':
+          setEnvTerminalAdmin();
+          isTerminal = true;
+          id = args[i + 1];
+          i++;
+          break;
         case '--password':
           password = args[i + 1];
           i++;
+          break;
+        case '--request-approval':
+          loginMethod = 'request-approval';
           break;
         default:
           break;
       }
     }
     if (id != null) {
-      connect(context, id, isFileTransfer: isFileTransfer, isViewCamera: isViewCamera, password: password);
+      connect(context, id, 
+        isFileTransfer: isFileTransfer, 
+        isViewCamera: isViewCamera, 
+        isTerminal: isTerminal,
+        loginMethod: loginMethod,
+        password: password);
     }
   }
 }

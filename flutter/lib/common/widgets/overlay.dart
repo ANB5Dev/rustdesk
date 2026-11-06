@@ -50,6 +50,7 @@ class DraggableChatWindow extends StatelessWidget {
           )
         : Draggable(
             checkKeyboard: true,
+            checkScreenSize: true,
             position: draggablePositions.chatWindow,
             width: width,
             height: height,
@@ -395,7 +396,10 @@ class _DraggableState extends State<Draggable> {
     _chatModel?.setChatWindowPosition(position);
   }
 
-  checkScreenSize() {}
+  checkScreenSize() {
+    // Ensure the draggable always stays within current screen bounds
+    widget.position.tryAdjust(widget.width, widget.height, 1);
+  }
 
   checkKeyboard() {
     final bottomHeight = MediaQuery.of(context).viewInsets.bottom;
@@ -518,6 +522,12 @@ class IOSDraggableState extends State<IOSDraggable> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    position.tryAdjust(_width, _height, 1);
+  }
+
+  @override
   Widget build(BuildContext context) {
     checkKeyboard();
     return Stack(
@@ -596,6 +606,9 @@ class QualityMonitor extends StatelessWidget {
                       _row(
                           "Codec", qualityMonitorModel.data.codecFormat ?? '-'),
                       _row("Chroma", qualityMonitorModel.data.chroma ?? '-'),
+                      if (qualityMonitorModel.webrtcTransport != null)
+                        _row("Transport",
+                            qualityMonitorModel.webrtcTransport!),
                     ],
                   ),
                 )

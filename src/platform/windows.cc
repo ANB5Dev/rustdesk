@@ -15,6 +15,23 @@
 #include <sddl.h>
 #include <memory>
 
+#ifdef RUSTDESK_SCITER
+// Share the runner's service operations without loading either UI framework.
+#include "../../flutter/windows/runner/service_control.h"
+
+extern "C" DWORD run_service_control()
+{
+    int count = 0;
+    wchar_t** args = CommandLineToArgvW(GetCommandLineW(), &count);
+    if (!args) {
+        return GetLastError();
+    }
+    const DWORD result = service_control::RunCommand(count, args);
+    LocalFree(args);
+    return result;
+}
+#endif
+
 extern "C" uint32_t get_session_user_info(PWSTR bufin, uint32_t nin, uint32_t id);
 
 void flog(char const *fmt, ...)
@@ -230,7 +247,7 @@ extern "C"
         return IsWindows10OrGreater();
     }
 
-    HANDLE LaunchProcessWin(LPCWSTR cmd, DWORD dwSessionId, BOOL as_user, DWORD *pDwTokenPid)
+    HANDLE LaunchProcessWin(LPCWSTR cmd, DWORD dwSessionId, BOOL as_user, BOOL show, DWORD *pDwTokenPid)
     {
         HANDLE hProcess = NULL;
         HANDLE hToken = NULL;
@@ -240,8 +257,13 @@ extern "C"
             ZeroMemory(&si, sizeof si);
             si.cb = sizeof si;
             si.dwFlags = STARTF_USESHOWWINDOW;
+            if (show)
+            {
+                si.lpDesktop = (LPWSTR)L"winsta0\\default";
+                si.wShowWindow = SW_SHOW;
+            }
             wchar_t buf[MAX_PATH];
-            wcscpy_s(buf, sizeof(buf), cmd);
+            wcscpy_s(buf, MAX_PATH, cmd);
             PROCESS_INFORMATION pi;
             LPVOID lpEnvironment = NULL;
             DWORD dwCreationFlags = DETACHED_PROCESS;
@@ -537,6 +559,26 @@ extern "C"
         SHAddToRecentDocs(SHARD_PATHW, path);
     }
 
+    // Hyper-V Enhanced Session names do not have the usual "rdp" prefix.
+    static bool is_rdp_session_by_protocol(DWORD session_id)
+    {
+        LPSTR buffer = nullptr;
+        DWORD bytes = 0;
+        if (!WTSQuerySessionInformationA(
+                WTS_CURRENT_SERVER_HANDLE, session_id, WTSClientProtocolType, &buffer, &bytes)) {
+            flog("Failed to query protocol for session %lu: Windows error %lu\n",
+                session_id, GetLastError());
+            return false;
+        }
+        std::unique_ptr<char, decltype(&WTSFreeMemory)> protocol_info(buffer, WTSFreeMemory);
+        if (!buffer || bytes < sizeof(USHORT)) {
+            flog("Failed to query protocol for session %lu: Windows error %lu\n",
+                session_id, static_cast<DWORD>(ERROR_INVALID_DATA));
+            return false;
+        }
+        return *reinterpret_cast<const USHORT *>(buffer) == WTS_PROTOCOL_TYPE_RDP;
+    }
+
     DWORD get_current_session(BOOL include_rdp)
     {
         auto rdp_or_console = WTSGetActiveConsoleSessionId();
@@ -568,11 +610,41 @@ extern "C"
                     {
                         rdp_or_console = info.SessionId;
                     }
+                    else if (is_rdp_session_by_protocol(info.SessionId))
+                    {
+                        rdp_or_console = info.SessionId;
+                    }
                 }
             }
             WTSFreeMemory(pInfos);
         }
         return rdp_or_console;
+    }
+
+    // WTSInfoExLevel1.SessionFlags, or WTS_SESSIONSTATE_UNKNOWN when it cannot be read.
+    DWORD get_session_flags(DWORD session_id)
+    {
+        DWORD flags = WTS_SESSIONSTATE_UNKNOWN;
+        // WTS_CURRENT_SESSION, which would query the caller's session instead.
+        if (session_id == 0xFFFFFFFF) {
+            return flags;
+        }
+        PWTSINFOEXW pInfo = NULL;
+        DWORD bytes = 0;
+        if (WTSQuerySessionInformationW(
+                WTS_CURRENT_SERVER_HANDLE,
+                session_id,
+                WTSSessionInfoEx,
+                (LPWSTR *)&pInfo,
+                &bytes)) {
+            if (pInfo && pInfo->Level == 1) {
+                flags = (DWORD)pInfo->Data.WTSInfoExLevel1.SessionFlags;
+            }
+            if (pInfo) {
+                WTSFreeMemory(pInfo);
+            }
+        }
+        return flags;
     }
 
     uint32_t get_active_user(PWSTR bufin, uint32_t nin, BOOL rdp)
@@ -636,6 +708,9 @@ extern "C"
                     }
                     else if (include_rdp && !strnicmp(info.pWinStationName, ica, nica)) {
                         sessionIds.push_back(std::wstring(L"ICA:") + std::to_wstring(info.SessionId));
+                    }
+                    else if (include_rdp && is_rdp_session_by_protocol(info.SessionId)) {
+                        sessionIds.push_back(std::wstring(L"RDP:") + std::to_wstring(info.SessionId));
                     }
                 }
             }
@@ -867,7 +942,44 @@ extern "C"
 // Remote printing 
 extern "C"
 {
-#pragma comment(lib, "XpsPrint.lib")
+// Dynamic loading of XPS Print functions
+typedef HRESULT(WINAPI *StartXpsPrintJobFunc)(
+    LPCWSTR printerName,
+    LPCWSTR jobName,
+    LPCWSTR outputFileName,
+    HANDLE progressEvent,
+    HANDLE completionEvent,
+    UINT8* printablePagesOn,
+    UINT32 printablePagesOnCount,
+    IXpsPrintJob** xpsPrintJob,
+    IXpsPrintJobStream** documentStream,
+    IXpsPrintJobStream** printTicketStream);
+
+static HMODULE xpsPrintModule = nullptr;
+static StartXpsPrintJobFunc StartXpsPrintJobPtr = nullptr;
+
+static bool InitXpsPrint()
+{
+    if (xpsPrintModule == nullptr)
+    {
+        xpsPrintModule = LoadLibraryA("XpsPrint.dll");
+        if (xpsPrintModule == nullptr)
+        {
+            flog("Failed to load XpsPrint.dll. Error: %d\n", GetLastError());
+            return false;
+        }
+        
+        StartXpsPrintJobPtr = (StartXpsPrintJobFunc)GetProcAddress(xpsPrintModule, "StartXpsPrintJob");
+        if (StartXpsPrintJobPtr == nullptr)
+        {
+            flog("Failed to get StartXpsPrintJob function. Error: %d\n", GetLastError());
+            FreeLibrary(xpsPrintModule);
+            xpsPrintModule = nullptr;
+            return false;
+        }
+    }
+    return true;
+}
 #pragma warning(push)
 #pragma warning(disable : 4995)
 
@@ -881,6 +993,13 @@ extern "C"
 
     int PrintXPSRawData(LPWSTR printerName, BYTE *rawData, ULONG dataSize)
     {
+        // Check if XPS Print DLL is available
+        if (!InitXpsPrint())
+        {
+            flog("XPS Print functionality not available on this system\n");
+            return -1;
+        }
+
         BOOL isCoInitializeOk = FALSE;
         HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         if (hr == RPC_E_CHANGED_MODE)
@@ -926,7 +1045,7 @@ extern "C"
         // `StartXpsPrintJob()` is deprecated, but we still use it for compatibility.
         // We may change to use the `Print Document Package API` in the future.
         // https://learn.microsoft.com/en-us/windows/win32/printdocs/xpsprint-functions
-        hr = StartXpsPrintJob(
+        hr = StartXpsPrintJobPtr(
             printerName,
             L"Print Job 1",
             nullptr,
@@ -969,6 +1088,16 @@ extern "C"
         jobOk = TRUE;
 
         return 0;
+    }
+
+    void CleanupXpsPrint()
+    {
+        if (xpsPrintModule != nullptr)
+        {
+            FreeLibrary(xpsPrintModule);
+            xpsPrintModule = nullptr;
+            StartXpsPrintJobPtr = nullptr;
+        }
     }
 
 #pragma warning(pop)

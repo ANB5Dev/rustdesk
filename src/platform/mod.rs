@@ -21,14 +21,48 @@ pub mod delegate;
 pub mod linux;
 
 #[cfg(target_os = "linux")]
-pub mod linux_desktop_manager;
-
-#[cfg(target_os = "linux")]
 pub mod gtk_sudo;
 
+#[cfg(target_os = "android")]
+pub mod android_log;
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use hbb_common::{message_proto::CursorData, ResultType};
+use base::message_proto::CursorData;
+#[cfg(all(
+    not(all(target_os = "windows", not(target_pointer_width = "64"))),
+    not(any(target_os = "android", target_os = "ios"))
+))]
+use hbb_common::sysinfo::System;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use hbb_common::{sysinfo::Pid, ResultType};
 use std::sync::{Arc, Mutex};
+
+// Restrict names because installers interpolate them into privileged scripts and paths.
+#[cfg(any(windows, target_os = "macos"))]
+fn validate_install_app_name(app_name: &str) -> ResultType<()> {
+    let mut bytes = app_name.bytes();
+    let Some(first) = bytes.next() else {
+        hbb_common::bail!("Application name must not be empty.");
+    };
+    // Keep leading hyphens valid on Windows for existing custom clients. macOS
+    // rejects them because pgrep interprets a leading hyphen as an option.
+    let valid_first =
+        first.is_ascii_alphanumeric() || first == b'_' || (cfg!(windows) && first == b'-');
+    if !valid_first
+        || !bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        let valid_prefix = if cfg!(windows) {
+            "a letter, number, underscore, or hyphen"
+        } else {
+            "a letter, number, or underscore"
+        };
+        hbb_common::bail!(
+            "Application name must start with {valid_prefix} and contain only letters, numbers, hyphens, and underscores."
+        );
+    }
+    Ok(())
+}
+
 #[cfg(not(any(target_os = "macos", target_os = "android", target_os = "ios")))]
 pub const SERVICE_INTERVAL: u64 = 300;
 
@@ -115,16 +149,18 @@ pub fn get_wakelock(_display: bool) -> WakeLock {
     return crate::platform::WakeLock::new(_display, true, false);
 }
 
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 pub(crate) struct InstallingService; // please use new
 
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 impl InstallingService {
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pub fn new() -> Self {
         *INSTALLING_SERVICE.lock().unwrap() = true;
         Self
     }
 }
 
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 impl Drop for InstallingService {
     fn drop(&mut self) {
         *INSTALLING_SERVICE.lock().unwrap() = false;
@@ -137,39 +173,96 @@ pub fn is_prelogin() -> bool {
     false
 }
 
-#[cfg(test)]
+// Note: This method is inefficient on Windows. It will get all the processes.
+// It should only be called when performance is not critical.
+// If we wanted to get the command line ourselves, there would be a lot of new code.
+#[allow(dead_code)]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn get_pids_of_process_with_args<S1: AsRef<str>, S2: AsRef<str>>(
+    name: S1,
+    args: &[S2],
+) -> Vec<Pid> {
+    // This function does not work when the process is 32-bit and the OS is 64-bit Windows,
+    // `process.cmd()` always returns [] in this case.
+    // So we use `windows::get_pids_with_args_by_wmic()` instead.
+    #[cfg(all(target_os = "windows", not(target_pointer_width = "64")))]
+    {
+        return windows::get_pids_with_args_by_wmic(name, args);
+    }
+    #[cfg(not(all(target_os = "windows", not(target_pointer_width = "64"))))]
+    {
+        let name = name.as_ref().to_lowercase();
+        let system = System::new_all();
+        system
+            .processes()
+            .iter()
+            .filter(|(_, process)| {
+                process.name().to_lowercase() == name
+                    && process.cmd().len() == args.len() + 1
+                    && args.iter().enumerate().all(|(i, arg)| {
+                        process.cmd()[i + 1].to_lowercase() == arg.as_ref().to_lowercase()
+                    })
+            })
+            .map(|(&pid, _)| pid)
+            .collect()
+    }
+}
+
+// Note: This method is inefficient on Windows. It will get all the processes.
+// It should only be called when performance is not critical.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+pub fn get_pids_of_process_with_first_arg<S1: AsRef<str>, S2: AsRef<str>>(
+    name: S1,
+    arg: S2,
+) -> Vec<Pid> {
+    // This function does not work when the process is 32-bit and the OS is 64-bit Windows,
+    // `process.cmd()` always returns [] in this case.
+    // So we use `windows::get_pids_with_first_arg_by_wmic()` instead.
+    #[cfg(all(target_os = "windows", not(target_pointer_width = "64")))]
+    {
+        return windows::get_pids_with_first_arg_by_wmic(name, arg);
+    }
+    #[cfg(not(all(target_os = "windows", not(target_pointer_width = "64"))))]
+    {
+        let name = name.as_ref().to_lowercase();
+        let system = System::new_all();
+        system
+            .processes()
+            .iter()
+            .filter(|(_, process)| {
+                process.name().to_lowercase() == name
+                    && process.cmd().len() >= 2
+                    && process.cmd()[1].to_lowercase() == arg.as_ref().to_lowercase()
+            })
+            .map(|(&pid, _)| pid)
+            .collect()
+    }
+}
+
+#[cfg(all(test, any(windows, target_os = "macos")))]
 mod tests {
     use super::*;
-    #[test]
-    fn test_cursor_data() {
-        for _ in 0..30 {
-            if let Some(hc) = get_cursor().unwrap() {
-                let cd = get_cursor_data(hc).unwrap();
-                repng::encode(
-                    std::fs::File::create("cursor.png").unwrap(),
-                    cd.width as _,
-                    cd.height as _,
-                    &cd.colors[..],
-                )
-                .unwrap();
-            }
-            #[cfg(target_os = "macos")]
-            macos::is_process_trusted(false);
-        }
-    }
-    #[test]
-    fn test_get_cursor_pos() {
-        for _ in 0..30 {
-            assert!(!get_cursor_pos().is_none());
-        }
-    }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     #[test]
-    fn test_resolution() {
-        let name = r"\\.\DISPLAY1";
-        println!("current:{:?}", current_resolution(name));
-        println!("change:{:?}", change_resolution(name, 2880, 1800));
-        println!("resolutions:{:?}", resolutions(name));
+    fn install_app_names_enforce_ascii_command_safety() {
+        for app_name in [
+            "RustDesk",
+            "RustDesk-2",
+            "A",
+            "A-0",
+            "1RustDesk",
+            "_RustDesk",
+            "Rust_Desk",
+        ] {
+            assert!(validate_install_app_name(app_name).is_ok(), "{app_name}");
+        }
+        for app_name in ["", "Rust.Desk", "Rust Desk", "RüstDesk", "RustDesk;touch"] {
+            assert!(validate_install_app_name(app_name).is_err(), "{app_name}");
+        }
+
+        #[cfg(windows)]
+        assert!(validate_install_app_name("-RustDesk").is_ok());
+        #[cfg(target_os = "macos")]
+        assert!(validate_install_app_name("-RustDesk").is_err());
     }
 }

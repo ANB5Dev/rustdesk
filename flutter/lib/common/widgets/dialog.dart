@@ -7,20 +7,29 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/shared_state.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
 import 'package:flutter_hbb/consts.dart';
+import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
 import 'package:flutter_hbb/models/peer_model.dart';
 import 'package:flutter_hbb/models/peer_tab_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:flutter_hbb/utils/http_service.dart' as http;
 
 import '../../common.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import 'address_book.dart';
 
-void clientClose(SessionID sessionId, OverlayDialogManager dialogManager) {
-  msgBox(sessionId, 'info', 'Close', 'Are you sure to close the connection?',
-      '', dialogManager);
+void clientClose(SessionID sessionId, FFI ffi) async {
+  if (allowAskForNoteAtEndOfConnection(ffi, true)) {
+    if (await showConnEndAuditDialogCloseCanceled(ffi: ffi)) {
+      return;
+    }
+    closeConnection();
+  } else {
+    msgBox(sessionId, 'info', 'Close', 'Are you sure to close the connection?',
+        '', ffi.dialogManager);
+  }
 }
 
 abstract class ValidationRule {
@@ -196,6 +205,10 @@ void changeWhiteList({Function()? callback}) async {
           const SizedBox(
             height: 8.0,
           ),
+          Text(translate("whitelist_cidr_tip")),
+          const SizedBox(
+            height: 8.0,
+          ),
           Row(
             children: [
               Expanded(
@@ -263,6 +276,111 @@ void changeWhiteList({Function()? callback}) async {
               }
               await bind.mainSetOption(
                   key: kOptionWhitelist, value: newWhiteList);
+              callback?.call();
+              close();
+            },
+          ),
+      ],
+      onCancel: close,
+    );
+  });
+}
+
+void changeIdWhiteList({Function()? callback}) async {
+  final curIdWhiteList = await bind.mainGetOption(key: kOptionIdWhitelist);
+  var newIdWhiteListField = curIdWhiteList == defaultOptionWhitelist
+      ? ''
+      : curIdWhiteList.split(',').join('\n');
+  var controller = TextEditingController(text: newIdWhiteListField);
+  var msg = "";
+  var isInProgress = false;
+  final isOptFixed = isOptionFixed(kOptionIdWhitelist);
+  gFFI.dialogManager.show((setState, close, context) {
+    return CustomAlertDialog(
+      title: Text(translate("ID whitelisting")),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(translate("whitelist_sep")),
+          const SizedBox(
+            height: 8.0,
+          ),
+          Text(translate("id_whitelist_wildcard_tip")),
+          const SizedBox(
+            height: 8.0,
+          ),
+          Text(translate("id_whitelist_caveat_tip")),
+          const SizedBox(
+            height: 8.0,
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                        maxLines: null,
+                        decoration: InputDecoration(
+                          errorText: msg.isEmpty ? null : translate(msg),
+                        ),
+                        controller: controller,
+                        enabled: !isOptFixed,
+                        autofocus: true)
+                    .workaroundFreezeLinuxMint(),
+              ),
+            ],
+          ),
+          const SizedBox(
+            height: 4.0,
+          ),
+          // NOT use Offstage to wrap LinearProgressIndicator
+          if (isInProgress) const LinearProgressIndicator(),
+        ],
+      ),
+      actions: [
+        dialogButton("Cancel", onPressed: close, isOutline: true),
+        if (!isOptFixed)
+          dialogButton("Clear", onPressed: () async {
+            await bind.mainSetOption(
+                key: kOptionIdWhitelist, value: defaultOptionWhitelist);
+            callback?.call();
+            close();
+          }, isOutline: true),
+        if (!isOptFixed)
+          dialogButton(
+            "OK",
+            onPressed: () async {
+              setState(() {
+                msg = "";
+                isInProgress = true;
+              });
+              newIdWhiteListField = controller.text.trim();
+              var newIdWhiteList = "";
+              if (newIdWhiteListField.isEmpty) {
+                // pass
+              } else {
+                final ids = newIdWhiteListField
+                    .trim()
+                    .split(RegExp(r"[\s,;\n]+"))
+                    .where((e) => e.isNotEmpty)
+                    .toList();
+                // Separators are handled above; allow all other Unicode characters.
+                for (final id in ids) {
+                  final hasControlCharacters = id.runes.any(
+                      (char) => char <= 0x1f || (char >= 0x7f && char <= 0x9f));
+                  if (hasControlCharacters) {
+                    msg = "${translate("Invalid ID")} $id";
+                    setState(() {
+                      isInProgress = false;
+                    });
+                    return;
+                  }
+                }
+                newIdWhiteList = ids.join(',');
+              }
+              if (newIdWhiteList.trim().isEmpty) {
+                newIdWhiteList = defaultOptionWhitelist;
+              }
+              await bind.mainSetOption(
+                  key: kOptionIdWhitelist, value: newIdWhiteList);
               callback?.call();
               close();
             },
@@ -818,24 +936,28 @@ void enterPasswordDialog(
   );
 }
 
-void enterUserLoginDialog(
-    SessionID sessionId, OverlayDialogManager dialogManager) async {
+void enterUserLoginDialog(SessionID sessionId,
+    OverlayDialogManager dialogManager, String osAccountDescTip,
+    {bool waitForAccept = false}) async {
   await _connectDialog(
     sessionId,
     dialogManager,
     osUsernameController: TextEditingController(),
     osPasswordController: TextEditingController(),
+    osAccountDescTip: osAccountDescTip,
+    waitForAccept: waitForAccept,
   );
 }
 
-void enterUserLoginAndPasswordDialog(
-    SessionID sessionId, OverlayDialogManager dialogManager) async {
+void enterUserLoginAndPasswordDialog(SessionID sessionId,
+    OverlayDialogManager dialogManager, String osAccountDescTip) async {
   await _connectDialog(
     sessionId,
     dialogManager,
     osUsernameController: TextEditingController(),
     osPasswordController: TextEditingController(),
     passwordController: TextEditingController(),
+    osAccountDescTip: osAccountDescTip,
   );
 }
 
@@ -845,17 +967,23 @@ _connectDialog(
   TextEditingController? osUsernameController,
   TextEditingController? osPasswordController,
   TextEditingController? passwordController,
+  String? osAccountDescTip,
+  bool waitForAccept = false,
 }) async {
+  final errUsername = ''.obs;
   var rememberPassword = false;
   if (passwordController != null) {
     rememberPassword =
         await bind.sessionGetRemember(sessionId: sessionId) ?? false;
   }
-  var rememberAccount = false;
   if (osUsernameController != null) {
-    rememberAccount =
-        await bind.sessionGetRemember(sessionId: sessionId) ?? false;
+    osUsernameController.addListener(() {
+      if (errUsername.value.isNotEmpty) {
+        errUsername.value = '';
+      }
+    });
   }
+
   dialogManager.dismissAll();
   dialogManager.show((setState, close, context) {
     cancel() {
@@ -864,16 +992,17 @@ _connectDialog(
     }
 
     submit() {
+      if (osUsernameController != null) {
+        if (osUsernameController.text.trim().isEmpty) {
+          errUsername.value = translate('Empty Username');
+          setState(() {});
+          return;
+        }
+      }
       final osUsername = osUsernameController?.text.trim() ?? '';
       final osPassword = osPasswordController?.text.trim() ?? '';
       final password = passwordController?.text.trim() ?? '';
       if (passwordController != null && password.isEmpty) return;
-      if (rememberAccount) {
-        bind.sessionPeerOption(
-            sessionId: sessionId, name: 'os-username', value: osUsername);
-        bind.sessionPeerOption(
-            sessionId: sessionId, name: 'os-password', value: osPassword);
-      }
       gFFI.login(
         osUsername,
         osPassword,
@@ -882,8 +1011,17 @@ _connectDialog(
         rememberPassword,
       );
       close();
-      dialogManager.showLoading(translate('Logging in...'),
-          onCancel: closeConnection);
+      if (waitForAccept) {
+        showWaitAcceptDialog(
+            sessionId,
+            'wait-remote-accept-nook',
+            'Prompt',
+            'Please wait for the remote side to accept your session request...',
+            dialogManager);
+      } else {
+        dialogManager.showLoading(translate('Logging in...'),
+            onCancel: closeConnection);
+      }
     }
 
     descWidget(String text) {
@@ -927,25 +1065,28 @@ _connectDialog(
       }
       return Column(
         children: [
-          descWidget(translate('login_linux_tip')),
+          if (osAccountDescTip != null) descWidget(translate(osAccountDescTip)),
           DialogTextField(
             title: translate(DialogTextField.kUsernameTitle),
             controller: osUsernameController,
             prefixIcon: DialogTextField.kUsernameIcon,
             errorText: null,
           ),
+          if (errUsername.value.isNotEmpty)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SelectableText(
+                errUsername.value,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontSize: 12,
+                ),
+                textAlign: TextAlign.left,
+              ).paddingOnly(left: 12, bottom: 2),
+            ),
           PasswordWidget(
             controller: osPasswordController,
             autoFocus: false,
-          ),
-          rememberWidget(
-            translate('remember_account_tip'),
-            rememberAccount,
-            (v) {
-              if (v != null) {
-                setState(() => rememberAccount = v);
-              }
-            },
           ),
         ],
       );
@@ -1136,7 +1277,7 @@ void showRequestElevationDialog(
               DialogTextField(
                 controller: userController,
                 title: translate('Username'),
-                hintText: translate('eg: admin'),
+                hintText: translate('elevation_username_tip'),
                 prefixIcon: DialogTextField.kUsernameIcon,
                 errorText: errUser.isEmpty ? null : errUser.value,
               ),
@@ -1383,84 +1524,74 @@ showSetOSPassword(
   });
 }
 
-showSetOSAccount(
-  SessionID sessionId,
-  OverlayDialogManager dialogManager,
-) async {
-  final usernameController = TextEditingController();
-  final passwdController = TextEditingController();
-  var username =
-      await bind.sessionGetOption(sessionId: sessionId, arg: 'os-username') ??
-          '';
-  var password =
-      await bind.sessionGetOption(sessionId: sessionId, arg: 'os-password') ??
-          '';
-  usernameController.text = username;
-  passwdController.text = password;
-  dialogManager.show((setState, close, context) {
+Widget buildNoteTextField({
+  required TextEditingController controller,
+  required VoidCallback onEscape,
+}) {
+  final focusNode = FocusNode(
+    onKey: (FocusNode node, RawKeyEvent evt) {
+      if (evt.logicalKey.keyLabel == 'Enter') {
+        if (evt is RawKeyDownEvent) {
+          int pos = controller.selection.base.offset;
+          controller.text =
+              '${controller.text.substring(0, pos)}\n${controller.text.substring(pos)}';
+          controller.selection =
+              TextSelection.fromPosition(TextPosition(offset: pos + 1));
+        }
+        return KeyEventResult.handled;
+      }
+      if (evt.logicalKey.keyLabel == 'Esc') {
+        if (evt is RawKeyDownEvent) {
+          onEscape();
+        }
+        return KeyEventResult.handled;
+      } else {
+        return KeyEventResult.ignored;
+      }
+    },
+  );
+
+  return TextField(
+    autofocus: true,
+    keyboardType: TextInputType.multiline,
+    textInputAction: TextInputAction.newline,
+    decoration: InputDecoration(
+      hintText: translate('input note here'),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+      ),
+      contentPadding: EdgeInsets.all(12),
+    ),
+    minLines: 5,
+    maxLines: null,
+    maxLength: 256,
+    controller: controller,
+    focusNode: focusNode,
+  ).workaroundFreezeLinuxMint();
+}
+
+showAuditDialog(FFI ffi) async {
+  final controller = TextEditingController(
+      text: bind.sessionGetLastAuditNote(sessionId: ffi.sessionId));
+  ffi.dialogManager.show((setState, close, context) {
     submit() {
-      final username = usernameController.text.trim();
-      final password = usernameController.text.trim();
-      bind.sessionPeerOption(
-          sessionId: sessionId, name: 'os-username', value: username);
-      bind.sessionPeerOption(
-          sessionId: sessionId, name: 'os-password', value: password);
+      var text = controller.text;
+      bind.sessionSendNote(sessionId: ffi.sessionId, note: text);
       close();
     }
 
-    descWidget(String text) {
-      return Column(
-        children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              text,
-              maxLines: 3,
-              softWrap: true,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 16),
-            ),
-          ),
-          Container(
-            height: 8,
-          ),
-        ],
-      );
-    }
-
     return CustomAlertDialog(
-      title: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.password_rounded, color: MyTheme.accent),
-          Text(translate('OS Account')).paddingOnly(left: 10),
-        ],
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          descWidget(translate("os_account_desk_tip")),
-          DialogTextField(
-            title: translate(DialogTextField.kUsernameTitle),
-            controller: usernameController,
-            prefixIcon: DialogTextField.kUsernameIcon,
-            errorText: null,
-          ),
-          PasswordWidget(controller: passwdController),
-        ],
-      ),
+      title: Text(translate('Note')),
+      content: SizedBox(
+          width: 250,
+          height: 120,
+          child: buildNoteTextField(
+            controller: controller,
+            onEscape: close,
+          )),
       actions: [
-        dialogButton(
-          "Cancel",
-          icon: Icon(Icons.close_rounded),
-          onPressed: close,
-          isOutline: true,
-        ),
-        dialogButton(
-          "OK",
-          icon: Icon(Icons.done_rounded),
-          onPressed: submit,
-        ),
+        dialogButton('Cancel', onPressed: close, isOutline: true),
+        dialogButton('OK', onPressed: submit)
       ],
       onSubmit: submit,
       onCancel: close,
@@ -1468,62 +1599,219 @@ showSetOSAccount(
   });
 }
 
-showAuditDialog(FFI ffi) async {
-  final controller = TextEditingController(text: ffi.auditNote);
-  ffi.dialogManager.show((setState, close, context) {
-    submit() {
-      var text = controller.text;
-      bind.sessionSendNote(sessionId: ffi.sessionId, note: text);
-      ffi.auditNote = text;
-      close();
+bool allowAskForNoteAtEndOfConnection(FFI? ffi, bool closedByControlling) {
+  if (ffi == null) {
+    return false;
+  }
+  return mainGetLocalBoolOptionSync(kOptionAllowAskForNoteAtEndOfConnection) &&
+      bind
+          .sessionGetAuditServerSync(sessionId: ffi.sessionId, typ: "conn")
+          .isNotEmpty &&
+      bind.sessionGetAuditGuid(sessionId: ffi.sessionId).isNotEmpty &&
+      bind.sessionGetLastAuditNote(sessionId: ffi.sessionId).isEmpty &&
+      (!closedByControlling ||
+          bind.willSessionCloseCloseSession(sessionId: ffi.sessionId));
+}
+
+// return value: close canceled
+//  true: return
+//  false: go on
+Future<bool> desktopTryShowTabAuditDialogCloseCancelled(
+    {required String id, required DesktopTabController tabController}) async {
+  try {
+    final page =
+        tabController.state.value.tabs.firstWhere((tab) => tab.key == id).page;
+    final ffi = (page as dynamic).ffi;
+    final res = await showConnEndAuditDialogCloseCanceled(ffi: ffi);
+    return res;
+  } catch (e) {
+    debugPrint('Failed to show audit dialog: $e');
+    return false;
+  }
+}
+
+// return value:
+//  true: return
+//  false: go on
+Future<bool> showConnEndAuditDialogCloseCanceled(
+    {required FFI ffi, String? type, String? title, String? text}) async {
+  final res = await _showConnEndAuditDialogCloseCanceled(
+      ffi: ffi, type: type, title: title, text: text);
+  if (res == true) {
+    return true;
+  }
+  return false;
+}
+
+// return value:
+//  true: return
+//  false / null: go on
+Future<bool?> _showConnEndAuditDialogCloseCanceled({
+  required FFI ffi,
+  String? type,
+  String? title,
+  String? text,
+}) async {
+  final closedByControlling = type == null;
+  final showDialog = allowAskForNoteAtEndOfConnection(ffi, closedByControlling);
+  if (!showDialog) {
+    return false;
+  }
+  ffi.dialogManager.dismissAll();
+
+  Future<void> updateAuditNoteByGuid(String auditGuid, String note) async {
+    debugPrint('Updating audit note for GUID: $auditGuid, note: $note');
+    try {
+      final apiServer = await bind.mainGetApiServer();
+      if (apiServer.isEmpty) {
+        debugPrint('API server is empty, cannot update audit note');
+        return;
+      }
+      final url = '$apiServer/api/audit';
+      var headers = getHttpHeaders();
+      headers['Content-Type'] = "application/json";
+      final body = jsonEncode({
+        'guid': auditGuid,
+        'note': note,
+      });
+
+      final response = await http.put(
+        Uri.parse(url),
+        headers: headers,
+        body: body,
+      );
+
+      if (response.statusCode == 200) {
+        debugPrint('Successfully updated audit note for GUID: $auditGuid');
+      } else {
+        debugPrint(
+            'Failed to update audit note. Status: ${response.statusCode}, Body: ${response.body}');
+      }
+    } catch (e) {
+      debugPrint('Error updating audit note: $e');
+    }
+  }
+
+  final controller = TextEditingController();
+  bool askForNote =
+      mainGetLocalBoolOptionSync(kOptionAllowAskForNoteAtEndOfConnection);
+  final isOptFixed = isOptionFixed(kOptionAllowAskForNoteAtEndOfConnection);
+  bool isInProgress = false;
+
+  return await ffi.dialogManager.show<bool>((setState, close, context) {
+    cancel() {
+      close(true);
     }
 
-    late final focusNode = FocusNode(
-      onKey: (FocusNode node, RawKeyEvent evt) {
-        if (evt.logicalKey.keyLabel == 'Enter') {
-          if (evt is RawKeyDownEvent) {
-            int pos = controller.selection.base.offset;
-            controller.text =
-                '${controller.text.substring(0, pos)}\n${controller.text.substring(pos)}';
-            controller.selection =
-                TextSelection.fromPosition(TextPosition(offset: pos + 1));
-          }
-          return KeyEventResult.handled;
-        }
-        if (evt.logicalKey.keyLabel == 'Esc') {
-          if (evt is RawKeyDownEvent) {
-            close();
-          }
-          return KeyEventResult.handled;
-        } else {
-          return KeyEventResult.ignored;
-        }
-      },
-    );
+    set() async {
+      if (isInProgress) return;
+      setState(() {
+        isInProgress = true;
+      });
+      var text = controller.text;
+      if (text.isNotEmpty) {
+        await updateAuditNoteByGuid(
+                bind.sessionGetAuditGuid(sessionId: ffi.sessionId), text)
+            .timeout(const Duration(seconds: 6), onTimeout: () {
+          debugPrint('updateAuditNoteByGuid timeout after 6s');
+        });
+      }
+      // Save the "ask for note" preference
+      if (!isOptFixed) {
+        await mainSetLocalBoolOption(
+            kOptionAllowAskForNoteAtEndOfConnection, askForNote);
+      }
+    }
+
+    submit() async {
+      await set();
+      close(false);
+    }
+
+    final buttons = [
+      dialogButton('OK', onPressed: isInProgress ? null : submit)
+    ];
+    if (type == 'relay-hint' || type == 'relay-hint2') {
+      buttons.add(dialogButton('Retry', onPressed: () async {
+        await set();
+        close(true);
+        ffi.ffiModel.reconnect(ffi.dialogManager, ffi.sessionId, false);
+      }));
+      if (type == 'relay-hint2') {
+        buttons.add(dialogButton('Connect via relay', onPressed: () async {
+          await set();
+          close(true);
+          ffi.ffiModel.reconnect(ffi.dialogManager, ffi.sessionId, true);
+        }));
+      }
+    }
+    if (closedByControlling) {
+      buttons.add(dialogButton('Cancel',
+          onPressed: isInProgress ? null : cancel, isOutline: true));
+    }
+
+    Widget content;
+    if (closedByControlling) {
+      content = SelectionArea(
+          child: msgboxContent(
+              'info', 'Close', 'Are you sure to close the connection?'));
+    } else {
+      content =
+          SelectionArea(child: msgboxContent(type, title ?? '', text ?? ''));
+    }
 
     return CustomAlertDialog(
-      title: Text(translate('Note')),
+      title: null,
       content: SizedBox(
-          width: 250,
-          height: 120,
-          child: TextField(
-            autofocus: true,
-            keyboardType: TextInputType.multiline,
-            textInputAction: TextInputAction.newline,
-            decoration: const InputDecoration.collapsed(
-              hintText: 'input note here',
-            ),
-            maxLines: null,
-            maxLength: 256,
-            controller: controller,
-            focusNode: focusNode,
-          ).workaroundFreezeLinuxMint()),
-      actions: [
-        dialogButton('Cancel', onPressed: close, isOutline: true),
-        dialogButton('OK', onPressed: submit)
-      ],
+          width: 350,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              content,
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 120,
+                child: buildNoteTextField(
+                  controller: controller,
+                  onEscape: cancel,
+                ),
+              ),
+              if (!isOptFixed) ...[
+                const SizedBox(height: 8),
+                InkWell(
+                  onTap: () {
+                    setState(() {
+                      askForNote = !askForNote;
+                    });
+                  },
+                  child: Row(
+                    children: [
+                      Checkbox(
+                        value: askForNote,
+                        onChanged: (value) {
+                          setState(() {
+                            askForNote = value ?? false;
+                          });
+                        },
+                      ),
+                      Expanded(
+                        child: Text(
+                          translate('note-at-conn-end-tip'),
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (isInProgress)
+                const LinearProgressIndicator().marginOnly(top: 4),
+            ],
+          )),
+      actions: buttons,
       onSubmit: submit,
-      onCancel: close,
+      onCancel: cancel,
     );
   });
 }
@@ -1623,6 +1911,112 @@ customImageQualityDialog(SessionID sessionId, String id, FFI ffi) async {
   msgBoxCommon(ffi.dialogManager, 'Custom Image Quality', content, [btnClose]);
 }
 
+int? _validateTrackpadSpeed(String text) {
+  final speed = int.tryParse(text);
+  if (speed == null || speed < kMinTrackpadSpeed || speed > kMaxTrackpadSpeed) {
+    BotToast.showText(
+      text:
+          '${translate('Invalid format')}: $kMinTrackpadSpeed-$kMaxTrackpadSpeed',
+      contentColor: Colors.red,
+    );
+    return null;
+  }
+  return speed;
+}
+
+Future<void> _saveTrackpadSpeed({
+  required SessionID sessionId,
+  required FFI ffi,
+  required int initSpeed,
+  required int speed,
+}) async {
+  if (speed == initSpeed) {
+    return;
+  }
+  await bind.sessionSetTrackpadSpeed(sessionId: sessionId, value: speed);
+  await ffi.inputModel.updateTrackpadSpeed();
+}
+
+void _showTrackpadSpeedSaveError(Object error, StackTrace stackTrace) {
+  debugPrint('Failed to save trackpad speed: $error');
+  debugPrintStack(stackTrace: stackTrace);
+  BotToast.showText(
+    text: translate('Failed'),
+    contentColor: Colors.red,
+  );
+}
+
+List<Widget> _trackpadSpeedDialogActions({
+  required bool isSubmitting,
+  required VoidCallback close,
+  required VoidCallback submit,
+}) {
+  return [
+    dialogButton(
+      'Cancel',
+      icon: Icon(Icons.close_rounded),
+      onPressed: isSubmitting ? null : close,
+      isOutline: true,
+    ),
+    dialogButton(
+      'OK',
+      icon: Icon(Icons.done_rounded),
+      onPressed: isSubmitting ? null : submit,
+    ),
+  ];
+}
+
+void trackpadSpeedDialog(SessionID sessionId, FFI ffi) {
+  final initSpeed = ffi.inputModel.trackpadSpeed;
+  final curSpeed = SimpleWrapper(initSpeed);
+  var speedText = initSpeed.toString();
+  var isSubmitting = false;
+  ffi.dialogManager.show((setState, close, context) {
+    Future<void> submit([String? submittedText]) async {
+      if (isSubmitting) {
+        return;
+      }
+      speedText = submittedText ?? speedText;
+      final speed = _validateTrackpadSpeed(speedText);
+      if (speed == null) {
+        return;
+      }
+      setState(() => isSubmitting = true);
+      try {
+        await _saveTrackpadSpeed(
+          sessionId: sessionId,
+          ffi: ffi,
+          initSpeed: initSpeed,
+          speed: speed,
+        );
+        close();
+      } catch (error, stackTrace) {
+        _showTrackpadSpeedSaveError(error, stackTrace);
+        setState(() => isSubmitting = false);
+      }
+    }
+
+    return CustomAlertDialog(
+      title: Text(
+        translate('Trackpad speed'),
+        style: TextStyle(fontSize: 21),
+      ),
+      content: TrackpadSpeedWidget(
+        value: curSpeed,
+        onTextChanged: (text) => speedText = text,
+        onTextSubmitted: submit,
+      ),
+      actions: _trackpadSpeedDialogActions(
+        isSubmitting: isSubmitting,
+        close: close,
+        submit: submit,
+      ),
+      onSubmit: isSubmitting ? null : submit,
+      onCancel: isSubmitting ? null : close,
+    );
+  });
+}
+
 void deleteConfirmDialog(Function onSubmit, String title) async {
   gFFI.dialogManager.show(
     (setState, close, context) {
@@ -1706,6 +2100,49 @@ void editAbTagDialog(
                   .toList(growable: false),
             ),
           ),
+          // NOT use Offstage to wrap LinearProgressIndicator
+          if (isInProgress) const LinearProgressIndicator(),
+        ],
+      ),
+      actions: [
+        dialogButton("Cancel", onPressed: close, isOutline: true),
+        dialogButton("OK", onPressed: submit),
+      ],
+      onSubmit: submit,
+      onCancel: close,
+    );
+  });
+}
+
+void editAbPeerNoteDialog(String id) {
+  var isInProgress = false;
+  final currentNote = gFFI.abModel.getPeerNote(id);
+  var controller = TextEditingController(text: currentNote);
+
+  gFFI.dialogManager.show((setState, close, context) {
+    submit() async {
+      setState(() {
+        isInProgress = true;
+      });
+      await gFFI.abModel.changeNote(id: id, note: controller.text);
+      close();
+    }
+
+    return CustomAlertDialog(
+      title: Text(translate("Edit note")),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: controller,
+            autofocus: true,
+            maxLines: 3,
+            minLines: 1,
+            maxLength: 300,
+            decoration: InputDecoration(
+              labelText: translate('Note'),
+            ),
+          ).workaroundFreezeLinuxMint(),
           // NOT use Offstage to wrap LinearProgressIndicator
           if (isInProgress) const LinearProgressIndicator(),
         ],
@@ -1853,9 +2290,12 @@ void changeBot({Function()? callback}) async {
 
 void change2fa({Function()? callback}) async {
   if (bind.mainHasValid2FaSync()) {
-    await bind.mainSetOption(key: "2fa", value: "");
-    await bind.mainClearTrustedDevices();
-    callback?.call();
+    try {
+      await bind.mainSetOption(key: "2fa", value: "");
+      callback?.call();
+    } catch (error) {
+      showToast(error.toString());
+    }
     return;
   }
   var new2fa = (await bind.mainGenerate2Fa());
@@ -2015,15 +2455,20 @@ void showWindowsSessionsDialog(
 
     return CustomAlertDialog(
       title: null,
-      content: msgboxContent(type, title, text),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          msgboxContent(type, title, text).marginOnly(bottom: 12),
+          ComboBox(
+              keys: sids,
+              values: names,
+              initialKey: selectedUserValue,
+              onChanged: (value) {
+                selectedUserValue = value;
+              }),
+        ],
+      ),
       actions: [
-        ComboBox(
-            keys: sids,
-            values: names,
-            initialKey: selectedUserValue,
-            onChanged: (value) {
-              selectedUserValue = value;
-            }),
         dialogButton('Connect', onPressed: submit, isOutline: false),
       ],
     );
@@ -2365,23 +2810,48 @@ void confrimDeleteTrustedDevicesDialog(
   CommonConfirmDialog(gFFI.dialogManager, '${translate('Confirm Delete')}?',
       () async {
     if (selectedDevices.isEmpty) return;
-    if (selectedDevices.length == trustedDevices.length) {
-      await bind.mainClearTrustedDevices();
-      trustedDevices.clear();
-      selectedDevices.clear();
-    } else {
-      final json = jsonEncode(selectedDevices.map((e) => e.toList()).toList());
-      await bind.mainRemoveTrustedDevices(json: json);
-      trustedDevices.removeWhere((element) {
-        return selectedDevices.contains(element.hwid);
-      });
-      selectedDevices.clear();
+    try {
+      if (selectedDevices.length == trustedDevices.length) {
+        await bind.mainClearTrustedDevices();
+        trustedDevices.clear();
+        selectedDevices.clear();
+      } else {
+        final json = jsonEncode(selectedDevices.map((e) => e.toList()).toList());
+        await bind.mainRemoveTrustedDevices(json: json);
+        trustedDevices.removeWhere((element) {
+          return selectedDevices.contains(element.recordId);
+        });
+        selectedDevices.clear();
+      }
+    } catch (error) {
+      showToast(error.toString());
     }
   });
 }
 
+Future<void> renewTrustedDevice(
+    TrustedDevice device,
+    RxList<TrustedDevice> trustedDevices,
+    RxList<Uint8List> selectedDevices) async {
+  try {
+    final json = jsonEncode([device.recordId.toList()]);
+    await bind.mainRenewTrustedDevices(json: json);
+    final result = await TrustedDevice.get();
+    selectedDevices.clear();
+    trustedDevices.assignAll(result);
+  } catch (error) {
+    showToast(error.toString());
+  }
+}
+
 void manageTrustedDeviceDialog() async {
-  RxList<TrustedDevice> trustedDevices = (await TrustedDevice.get()).obs;
+  late final RxList<TrustedDevice> trustedDevices;
+  try {
+    trustedDevices = (await TrustedDevice.get()).obs;
+  } catch (error) {
+    showToast(error.toString());
+    return;
+  }
   RxList<Uint8List> selectedDevices = RxList.empty();
   gFFI.dialogManager.show((setState, close, context) {
     return CustomAlertDialog(
@@ -2407,25 +2877,67 @@ void manageTrustedDeviceDialog() async {
   });
 }
 
+Widget trustedDeviceExpiration({
+  required bool enabled,
+  required VoidCallback onChanged,
+  bool showLabel = true,
+}) {
+  final period = bind.mainGetOptionSync(key: kOptionTrustedDeviceExpiration);
+  const periods = ['1', '7', '30', '90', '0'];
+  const dropdownHeight = 36.0;
+  return Align(
+    alignment: AlignmentDirectional.centerStart,
+    child: Wrap(
+      spacing: 12,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (showLabel) Text(translate('Trust duration (days)')),
+        SizedBox(
+          width: isDesktop || isWebDesktop ? 140 : 100,
+          height: dropdownHeight,
+          child: ComboBox(
+            keys: periods,
+            values: ['1', '7', '30', '90', translate('Forever')],
+            initialKey: periods.contains(period) ? period : '90',
+            enabled: enabled && !isOptionFixed(kOptionTrustedDeviceExpiration),
+            onChanged: (value) async {
+              try {
+                await bind.mainSetOption(
+                    key: kOptionTrustedDeviceExpiration, value: value);
+              } catch (error) {
+                showToast(error.toString());
+              }
+              onChanged();
+            },
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class TrustedDevice {
-  late final Uint8List hwid;
+  late final Uint8List recordId;
   late final int time;
+  late final int expiresAt;
   late final String id;
   late final String name;
   late final String platform;
 
   TrustedDevice.fromJson(Map<String, dynamic> json) {
-    final hwidList = json['hwid'] as List<dynamic>;
-    hwid = Uint8List.fromList(hwidList.cast<int>());
+    final recordIdList = json['record_id'] as List<dynamic>;
+    recordId = Uint8List.fromList(recordIdList.cast<int>());
     time = json['time'];
+    expiresAt = json['expires_at'];
     id = json['id'];
     name = json['name'];
     platform = json['platform'];
   }
 
   String daysRemaining() {
-    final expiry = time + 90 * 24 * 60 * 60 * 1000;
-    final remaining = expiry - DateTime.now().millisecondsSinceEpoch;
+    if (expiresAt == 0) return translate('Forever');
+    final remaining = expiresAt - DateTime.now().millisecondsSinceEpoch;
     if (remaining < 0) {
       return '0';
     }
@@ -2434,18 +2946,11 @@ class TrustedDevice {
 
   static Future<List<TrustedDevice>> get() async {
     final List<TrustedDevice> devices = List.empty(growable: true);
-    try {
-      final devicesJson = await bind.mainGetTrustedDevices();
-      if (devicesJson.isNotEmpty) {
-        final devicesList = json.decode(devicesJson);
-        if (devicesList is List) {
-          for (var device in devicesList) {
-            devices.add(TrustedDevice.fromJson(device));
-          }
-        }
-      }
-    } catch (e) {
-      print(e.toString());
+    final devicesJson = await bind.mainGetTrustedDevices();
+    final result = json.decode(devicesJson) as Map<String, dynamic>;
+    final devicesList = result['devices'] as List;
+    for (final device in devicesList) {
+      devices.add(TrustedDevice.fromJson(device));
     }
     devices.sort((a, b) => b.time.compareTo(a.time));
     return devices;
@@ -2479,7 +2984,7 @@ Widget trustedDevicesTable(
               onChanged: (value) {
                 if (value == true) {
                   selectedDevices.clear();
-                  selectedDevices.addAll(devices.map((e) => e.hwid));
+                  selectedDevices.addAll(devices.map((e) => e.recordId));
                 } else {
                   selectedDevices.clear();
                 }
@@ -2493,21 +2998,30 @@ Widget trustedDevicesTable(
           rows: devices.map((device) {
             return DataRow(cells: [
               DataCell(Checkbox(
-                value: selectedDevices.contains(device.hwid),
+                value: selectedDevices.contains(device.recordId),
                 onChanged: (value) {
                   if (value == null) return;
                   if (value) {
-                    selectedDevices.remove(device.hwid);
-                    selectedDevices.add(device.hwid);
+                    selectedDevices.remove(device.recordId);
+                    selectedDevices.add(device.recordId);
                   } else {
-                    selectedDevices.remove(device.hwid);
+                    selectedDevices.remove(device.recordId);
                   }
                 },
               )),
               DataCell(Text(device.platform)),
               DataCell(Text(device.id)),
               DataCell(Text(device.name)),
-              DataCell(Text(device.daysRemaining())),
+              DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(device.daysRemaining()),
+                if (device.expiresAt != 0)
+                  IconButton(
+                    icon: Icon(Icons.refresh),
+                    tooltip: translate('Renew trust'),
+                    onPressed: () =>
+                        renewTrustedDevice(device, devices, selectedDevices),
+                  ),
+              ])),
             ]);
           }).toList(),
         )),

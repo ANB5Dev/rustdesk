@@ -1,9 +1,12 @@
+#[cfg(any(test, not(target_os = "linux")))]
+mod audio_resampler;
 mod keyboard;
 /// cbindgen:ignore
 pub mod platform;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub use platform::{
-    get_cursor, get_cursor_data, get_cursor_pos, get_focused_display, start_os_service,
+    clip_cursor, get_cursor, get_cursor_data, get_cursor_pos, get_focused_display,
+    set_cursor_pos, start_os_service,
 };
 #[cfg(not(any(target_os = "ios")))]
 /// cbindgen:ignore
@@ -23,10 +26,13 @@ pub mod ipc;
 #[cfg(not(any(
     target_os = "android",
     target_os = "ios",
-    feature = "cli",
     feature = "flutter"
 )))]
 pub mod ui;
+pub(crate) mod update_metadata;
+pub(crate) mod update_hash;
+#[cfg(target_os = "macos")]
+mod manual_update;
 mod version;
 pub use version::*;
 #[cfg(any(target_os = "android", target_os = "ios", feature = "flutter"))]
@@ -37,23 +43,25 @@ pub mod flutter;
 pub mod flutter_ffi;
 use common::*;
 mod auth_2fa;
-#[cfg(feature = "cli")]
-pub mod cli;
-#[cfg(not(any(target_os = "android", target_os = "ios", feature = "cli")))]
+mod trusted_devices;
+#[cfg(not(target_os = "ios"))]
+mod clipboard;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub mod core_main;
 mod custom_server;
 mod lang;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod port_forward;
-#[cfg(not(target_os = "ios"))]
-mod clipboard;
-
-#[cfg(all(feature = "flutter", feature = "plugin_framework"))]
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub mod plugin;
+mod port_forward_mux;
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod tray;
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod whiteboard;
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+mod updater;
 
 mod ui_cm_interface;
 mod ui_interface;
@@ -68,3 +76,5 @@ pub mod privacy_mode;
 
 #[cfg(windows)]
 pub mod virtual_display_manager;
+
+mod kcp_stream;

@@ -2,6 +2,7 @@
 // Sometimes reboot is needed to refresh sudoers.
 
 use crate::lang::translate;
+use base::platform::linux::CMD_SH;
 use gtk::{glib, prelude::*};
 use hbb_common::{
     anyhow::{bail, Error},
@@ -350,7 +351,10 @@ fn ui_parent(
                 let last_line = buf.lines().last().unwrap_or(&buf).trim().to_string();
                 log::info!("read from child: {}", buf);
 
-                if last_line.starts_with("sudo:") || last_line.starts_with("su:") {
+                // sudo-rs's notice for a rejected password, not an error: it asks again.
+                if (last_line.starts_with("sudo:") || last_line.starts_with("su:"))
+                    && last_line != "sudo: Authentication failed, try again."
+                {
                     if let Err(e) = tx_to_ui.send(Message::ErrorDialog(last_line)) {
                         log::error!("Channel error: {e:?}");
                         kill_child(child);
@@ -418,6 +422,7 @@ fn ui_parent(
                     if !last_line.is_empty() && initial_password.is_some() {
                         log::error!("received not empty line: {last_line}, clear initial password");
                         initial_password = None;
+                        first = true;
                     }
                 }
             }
@@ -463,12 +468,12 @@ fn ui_parent(
 fn child(su_user: Option<String>, args: Vec<String>) -> ResultType<()> {
     // https://doc.rust-lang.org/std/env/consts/constant.OS.html
     let os = std::env::consts::OS;
-    let bsd = os == "freebsd" || os == "dragonfly" || os == "netbsd" || os == "openbad";
+    let bsd = os == "freebsd" || os == "dragonfly" || os == "netbsd" || os == "openbsd";
     let mut params = vec!["sudo".to_string()];
     if su_user.is_some() {
         params.push("-S".to_string());
     }
-    params.push("/bin/sh".to_string());
+    params.push(CMD_SH.to_string());
     params.push("-c".to_string());
 
     let command = args

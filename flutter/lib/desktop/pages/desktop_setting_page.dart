@@ -10,14 +10,16 @@ import 'package:flutter_hbb/common/widgets/audio_input.dart';
 import 'package:flutter_hbb/common/widgets/setting_widgets.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_home_page.dart';
+import 'package:flutter_hbb/common/widgets/keyboard_shortcuts/page_body.dart';
+import 'package:flutter_hbb/desktop/pages/desktop_keyboard_shortcuts_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
+import 'package:flutter_hbb/desktop/widgets/remote_toolbar.dart';
 import 'package:flutter_hbb/mobile/widgets/dialog.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/printer_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
+import 'package:flutter_hbb/models/shortcut_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
-import 'package:flutter_hbb/plugin/manager.dart';
-import 'package:flutter_hbb/plugin/widgets/desktop_settings.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -54,7 +56,6 @@ enum SettingsTabKey {
   safety,
   network,
   display,
-  plugin,
   account,
   printer,
   about,
@@ -63,7 +64,8 @@ enum SettingsTabKey {
 class DesktopSettingPage extends StatefulWidget {
   final SettingsTabKey initialTabkey;
   static final List<SettingsTabKey> tabKeys = [
-    SettingsTabKey.general,
+    if (bind.mainGetBuildinOption(key: kOptionHideGeneralSetting) != 'Y')
+      SettingsTabKey.general,
     if (!isWeb &&
         !bind.isOutgoingOnly() &&
         !bind.isDisableSettings() &&
@@ -73,10 +75,11 @@ class DesktopSettingPage extends StatefulWidget {
         bind.mainGetBuildinOption(key: kOptionHideNetworkSetting) != 'Y')
       SettingsTabKey.network,
     if (!bind.isIncomingOnly()) SettingsTabKey.display,
-    if (!isWeb && !bind.isIncomingOnly() && bind.pluginFeatureIsEnabled())
-      SettingsTabKey.plugin,
     if (!bind.isDisableAccount()) SettingsTabKey.account,
-    if (isWindows) SettingsTabKey.printer,
+    if (isWindows &&
+        !bind.isDisableSettings() &&
+        bind.mainGetBuildinOption(key: kOptionHideRemotePrinterSetting) != 'Y')
+      SettingsTabKey.printer,
     SettingsTabKey.about,
   ];
 
@@ -92,7 +95,8 @@ class DesktopSettingPage extends StatefulWidget {
       if (index == -1) {
         return;
       }
-      if (Get.isRegistered<PageController>(tag: _kSettingPageControllerTag)) {
+      if (Get.isRegistered<PageController>(tag: _kSettingPageControllerTag) &&
+          Get.isRegistered<Rx<SettingsTabKey>>(tag: _kSettingPageTabKeyTag)) {
         DesktopTabPage.onAddSetting(initialPage: page);
         PageController controller =
             Get.find<PageController>(tag: _kSettingPageControllerTag);
@@ -160,17 +164,23 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
       if (!mounted) {
         return;
       }
-      _canBeBlocked.value = await canBeBlocked();
+      final blocked = await canBeBlocked();
+      if (!mounted) {
+        return;
+      }
+      _canBeBlocked.value = blocked;
     });
   }
 
   @override
   void dispose() {
-    super.dispose();
-    Get.delete<PageController>(tag: _kSettingPageControllerTag);
-    Get.delete<RxInt>(tag: _kSettingPageTabKeyTag);
-    WidgetsBinding.instance.removeObserver(this);
     _videoConnTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    Get.delete<PageController>(tag: _kSettingPageControllerTag);
+    Get.delete<Rx<SettingsTabKey>>(tag: _kSettingPageTabKeyTag);
+    // Get.delete does not dispose a plain ChangeNotifier.
+    controller.dispose();
+    super.dispose();
   }
 
   List<_TabInfo> _settingTabs() {
@@ -192,10 +202,6 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
         case SettingsTabKey.display:
           settingTabs.add(_TabInfo(tab, 'Display',
               Icons.desktop_windows_outlined, Icons.desktop_windows));
-          break;
-        case SettingsTabKey.plugin:
-          settingTabs.add(_TabInfo(
-              tab, 'Plugin', Icons.extension_outlined, Icons.extension));
           break;
         case SettingsTabKey.account:
           settingTabs.add(
@@ -229,9 +235,6 @@ class _DesktopSettingPageState extends State<DesktopSettingPage>
           break;
         case SettingsTabKey.display:
           children.add(const _Display());
-          break;
-        case SettingsTabKey.plugin:
-          children.add(const _Plugin());
           break;
         case SettingsTabKey.account:
           children.add(const _Account());
@@ -404,6 +407,7 @@ class _GeneralState extends State<_General> {
   final RxBool serviceStop =
       isWeb ? RxBool(false) : Get.find<RxBool>(tag: 'stop-service');
   RxBool serviceBtnEnabled = true.obs;
+  final GlobalKey _minToolbarOptionKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -418,9 +422,48 @@ class _GeneralState extends State<_General> {
         if (!isWeb) audio(context),
         if (!isWeb) record(context),
         if (!isWeb) WaylandCard(),
-        other()
+        other(),
+        if (!bind.isIncomingOnly()) keyboardShortcuts(),
       ],
     ).marginOnly(bottom: _kListViewBottomMargin);
+  }
+
+  Widget keyboardShortcuts() {
+    // The bindings JSON (LocalConfig key `keyboard-shortcuts`) holds three
+    // flags + the bindings list: {enabled, pass_through, bindings}. When the
+    // master is off, the pass-through toggle and the Configure entry are
+    // hidden — both are meaningless without an active matcher.
+    return StatefulBuilder(builder: (context, setLocalState) {
+      final enabled = ShortcutModel.isEnabled();
+      return _Card(title: 'Keyboard shortcuts', children: [
+        _OptionCheckBox(
+          context,
+          'Enable keyboard shortcuts in remote session',
+          kShortcutLocalConfigKey,
+          isServer: false,
+          optGetter: ShortcutModel.isEnabled,
+          optSetter: (_, v) async {
+            await ShortcutModel.setEnabled(v);
+            setLocalState(() {});
+          },
+        ),
+        if (enabled) ...[
+          _OptionCheckBox(
+            context,
+            'Pass-through to remote',
+            kShortcutLocalConfigKey,
+            isServer: false,
+            optGetter: ShortcutModel.isPassThrough,
+            optSetter: (_, v) async {
+              await ShortcutModel.setPassThrough(v);
+              setLocalState(() {});
+            },
+            trailing: const InfoTooltipIcon(tipKey: 'shortcut-passthrough-tip'),
+          ),
+          _ShortcutsConfigureRow(),
+        ],
+      ]);
+    });
   }
 
   Widget theme() {
@@ -455,34 +498,67 @@ class _GeneralState extends State<_General> {
       return const Offstage();
     }
 
-    return _Card(title: 'Service', children: [
-      Obx(() => _Button(serviceStop.value ? 'Start' : 'Stop', () {
-            () async {
-              serviceBtnEnabled.value = false;
-              await start_service(serviceStop.value);
-              // enable the button after 1 second
-              Future.delayed(const Duration(seconds: 1), () {
-                serviceBtnEnabled.value = true;
-              });
-            }();
-          }, enabled: serviceBtnEnabled.value))
-    ]);
+    final hideStopService =
+        bind.mainGetBuildinOption(key: kOptionHideStopService) == 'Y';
+
+    return Obx(() {
+      if (hideStopService && !serviceStop.value) {
+        return const Offstage();
+      }
+
+      return _Card(title: 'Service', children: [
+        _Button(serviceStop.value ? 'Start' : 'Stop', () {
+          () async {
+            serviceBtnEnabled.value = false;
+            await start_service(serviceStop.value);
+            // enable the button after 1 second
+            Future.delayed(const Duration(seconds: 1), () {
+              serviceBtnEnabled.value = true;
+            });
+          }();
+        }, enabled: serviceBtnEnabled.value)
+      ]);
+    });
   }
 
   Widget other() {
+    final incomingOnly = bind.isIncomingOnly();
+    final outgoingOnly = bind.isOutgoingOnly();
+    final showAutoUpdate = (isWindows && bind.mainIsInstalled()) ||
+    (isMacOS && bind.mainIsInstalled() && bind.mainIsInstalledDaemon(prompt: false) && !bind.isCustomClient());
     final children = <Widget>[
-      if (!isWeb && !bind.isIncomingOnly())
+      if (!isWeb && !incomingOnly)
         _OptionCheckBox(context, 'Confirm before closing multiple tabs',
             kOptionEnableConfirmClosingTabs,
             isServer: false),
-      _OptionCheckBox(context, 'Adaptive bitrate', kOptionEnableAbr),
+      if (!incomingOnly)
+        _OptionCheckBox(
+          context,
+          'allow-remote-toolbar-docking-any-edge',
+          kOptionAllowMultiEdgeToolbarDock,
+          isServer: false,
+          update: (_) {
+            reloadAllWindows();
+          },
+        ),
+      if (!isWeb && !outgoingOnly)
+        _OptionCheckBox(context, 'Adaptive bitrate', kOptionEnableAbr),
       if (!isWeb) wallpaper(),
-      if (!isWeb && !bind.isIncomingOnly()) ...[
+      if (!isWeb && !incomingOnly) ...[
         _OptionCheckBox(
           context,
           'Open connection in new tab',
           kOptionOpenNewConnInTabs,
           isServer: false,
+        ),
+        Tooltip(
+          message: translate('port-forward-mux-tip'),
+          child: _OptionCheckBox(
+            context,
+            'Reuse one connection for port forwarding',
+            kOptionEnablePortForwardMux,
+            isServer: false,
+          ),
         ),
         // though this is related to GUI, but opengl problem affects all users, so put in config rather than local
         if (isLinux)
@@ -516,24 +592,125 @@ class _GeneralState extends State<_General> {
               isServer: false,
             ),
           ),
-        if (!isWeb && !bind.isCustomClient())
-          _OptionCheckBox(
+      ],
+      if (!isWeb && !bind.isCustomClient())
+        _OptionCheckBox(
+          context,
+          'Check for software update on startup',
+          kOptionEnableCheckUpdate,
+          isServer: false,
+        ),
+      if (showAutoUpdate)
+        _OptionCheckBox(
+          context,
+          'Auto update',
+          kOptionAllowAutoUpdate,
+          isServer: true,
+        ),
+      if (isWindows && !outgoingOnly)
+        _OptionCheckBox(
+          context,
+          'Capture screen using DirectX',
+          kOptionDirectxCapture,
+        ),
+      if (!isWeb && !incomingOnly) ...[
+        _OptionCheckBox(
+          context,
+          'Enable TCP hole punching',
+          kOptionEnableTcpPunch,
+          isServer: false,
+        ),
+        _OptionCheckBox(
+          context,
+          'Enable UDP hole punching',
+          kOptionEnableUdpPunch,
+          isServer: false,
+        ),
+        _OptionCheckBox(
+          context,
+          'Enable IPv6 P2P connection',
+          kOptionEnableIpv6Punch,
+          isServer: false,
+        ),
+      ],
+      if (!incomingOnly) ...webrtcOptions(context),
+      if (!isWeb && !incomingOnly)
+        Tooltip(
+          message: translate('sync-clipboard-between-sessions-tip'),
+          child: _OptionCheckBox(
             context,
-            'Check for software update on startup',
-            kOptionEnableCheckUpdate,
+            'Sync clipboard between sessions',
+            kOptionAllowSyncClipboardBetweenSessions,
             isServer: false,
           ),
-        if (isWindows && !bind.isOutgoingOnly())
-          _OptionCheckBox(
-            context,
-            'Capture screen using DirectX',
-            kOptionDirectxCapture,
-          )
-      ],
+        ),
     ];
-    if (!isWeb && bind.mainShowOption(key: kOptionAllowLinuxHeadless)) {
+
+    // Add client-side wakelock option for desktop platforms
+    if (!bind.isIncomingOnly()) {
       children.add(_OptionCheckBox(
-          context, 'Allow linux headless', kOptionAllowLinuxHeadless));
+        context,
+        'keep-awake-during-outgoing-sessions-label',
+        kOptionKeepAwakeDuringOutgoingSessions,
+        isServer: false,
+      ));
+    }
+
+    if (!bind.isDisableAccount()) {
+      children.add(_OptionCheckBox(
+        context,
+        'note-at-conn-end-tip',
+        kOptionAllowAskForNoteAtEndOfConnection,
+        isServer: false,
+        optSetter: (key, value) async {
+          if (value && !gFFI.userModel.isLogin) {
+            final res = await loginDialog();
+            if (res != true) return;
+          }
+          await mainSetLocalBoolOption(key, value);
+        },
+      ));
+    }
+    children.add(_OptionCheckBox(
+      context,
+      'Show monitor switch button on the main toolbar',
+      kOptionAllowMonitorSwitchMainToolbar,
+      isServer: false,
+      update: (enabled) async {
+        if (!enabled) {
+          await mainSetLocalBoolOption(
+              kOptionAllowMonitorSwitchMinToolbar, false);
+        }
+        if (mounted) setState(() {});
+        reloadAllWindows();
+        if (enabled) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            final ctx = _minToolbarOptionKey.currentContext;
+            if (ctx != null) {
+              Scrollable.ensureVisible(
+                ctx,
+                alignment: 0.5,
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeInOut,
+              );
+            }
+          });
+        }
+      },
+    ));
+    if (mainGetLocalBoolOptionSync(kOptionAllowMonitorSwitchMainToolbar)) {
+      children.add(KeyedSubtree(
+        key: _minToolbarOptionKey,
+        child: _OptionCheckBox(
+          context,
+          'Show on the minimized toolbar',
+          kOptionAllowMonitorSwitchMinToolbar,
+          isServer: false,
+          update: (_) {
+            reloadAllWindows();
+          },
+        ).marginOnly(left: _kCheckBoxLeftMargin * 3),
+      ));
     }
     return _Card(title: 'Other', children: children);
   }
@@ -746,6 +923,85 @@ class _GeneralState extends State<_General> {
       ).marginOnly(left: _kContentHMargin);
     });
   }
+
+  // How long an already-connected relay is held back to give the direct WebRTC
+  // attempt a chance to win. It only means anything while WebRTC is on, so it
+  // follows the checkbox as an indented sub-option and is hidden outright when
+  // the box is clear — the shape `directIp` uses for its port.
+  List<Widget> webrtcOptions(BuildContext context) {
+    final stored = bind.mainGetLocalOption(key: kOptionRelayFallbackDelay);
+    final controller = TextEditingController(text: stored);
+    // What the field holds against what is saved. Apply is offered only while
+    // the two differ, so an untouched field shows no button at all, and neither
+    // does one typed back to its saved value or cleared when nothing was saved
+    // — the state an "edited" flag alone would still call dirty.
+    final typed = RxString(stored);
+    final saved = RxString(stored);
+    return [
+      _OptionCheckBox(
+        context,
+        'Enable WebRTC P2P connection',
+        kOptionEnableWebrtc,
+        isServer: false,
+        update: (_) => setState(() {}),
+      ),
+      () {
+        final enabled = mainGetLocalBoolOptionSync(kOptionEnableWebrtc);
+        final isOptFixed = isOptionFixed(kOptionRelayFallbackDelay);
+        return Offstage(
+          offstage: !enabled,
+          child: Tooltip(
+            message: translate('relay-fallback-delay-tip'),
+            child: _SubLabeledWidget(
+              context,
+              'Relay fallback delay in seconds',
+              Row(children: [
+                SizedBox(
+                  width: 95,
+                  child: TextField(
+                    controller: controller,
+                    enabled: enabled && !isOptFixed,
+                    onChanged: (v) => typed.value = v,
+                    inputFormatters: [
+                      // Seconds, at most one decimal. Clearing the field is
+                      // allowed and restores the built-in default.
+                      FilteringTextInputFormatter.allow(
+                          RegExp(r'^([0-9]|[1-9][0-9])(\.[0-9]?)?$')),
+                    ],
+                    decoration: const InputDecoration(
+                      hintText: '2.5',
+                      contentPadding:
+                          EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                    ),
+                  ).workaroundFreezeLinuxMint().marginOnly(right: 15),
+                ),
+                Obx(() => Offstage(
+                      offstage: typed.value.trim() == saved.value.trim(),
+                      child: ElevatedButton(
+                        onPressed: enabled &&
+                                !isOptFixed &&
+                                !typed.value.trim().endsWith('.') &&
+                                double.tryParse(typed.value.trim()) != 0
+                            ? () async {
+                                final v = controller.text.trim();
+                                await bind.mainSetLocalOption(
+                                    key: kOptionRelayFallbackDelay, value: v);
+                                if (controller.text != v) controller.text = v;
+                                typed.value = v;
+                                saved.value = v;
+                              }
+                            : null,
+                        child: Text(translate('Apply')),
+                      ),
+                    ))
+              ]),
+              enabled: enabled && !isOptFixed,
+            ),
+          ),
+        );
+      }(),
+    ];
+  }
 }
 
 enum _AccessMode {
@@ -784,7 +1040,8 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                 permissions(context),
                 password(context),
                 _Card(title: '2FA', children: [tfa()]),
-                _Card(title: 'ID', children: [changeId()]),
+                if (!isChangeIdDisabled())
+                  _Card(title: 'ID', children: [changeId()]),
                 more(context),
               ]),
             ),
@@ -887,6 +1144,13 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
               message: translate("enable-trusted-devices-tip"),
               child: _OptionCheckBox(context, "Enable trusted devices",
                   kOptionEnableTrustedDevices,
+                  optSetter: (key, value) async {
+                try {
+                  await mainSetBoolOption(key, value);
+                } catch (error) {
+                  showToast(error.toString());
+                }
+              },
                   enabled: !locked, update: (v) {
                 setState(() {});
               }),
@@ -904,7 +1168,21 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
       ).marginOnly(left: 30);
 
       return Column(
-        children: [tfa, bot, trust],
+        children: [
+          tfa,
+          bot,
+          trust,
+          if (mainGetBoolOptionSync(kOptionEnableTrustedDevices))
+            trustedDeviceExpiration(
+              enabled: !locked,
+              onChanged: () {
+                if (mounted) setState(() {});
+              },
+            ).marginOnly(
+              left: _kCheckBoxLeftMargin + 20 + _kContentHSubMargin,
+              top: _kContentHMargin,
+            ),
+        ],
       );
     }
 
@@ -986,6 +1264,8 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                 enabled: enabled, fakeValue: fakeValue),
             _OptionCheckBox(context, 'Enable camera', kOptionEnableCamera,
                 enabled: enabled, fakeValue: fakeValue),
+            _OptionCheckBox(context, 'Enable terminal', kOptionEnableTerminal,
+                enabled: enabled, fakeValue: fakeValue),
             _OptionCheckBox(
                 context, 'Enable TCP tunneling', kOptionEnableTunnel,
                 enabled: enabled, fakeValue: fakeValue),
@@ -998,6 +1278,10 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
             if (isWindows)
               _OptionCheckBox(context, 'Enable blocking user input',
                   kOptionEnableBlockInput,
+                  enabled: enabled, fakeValue: fakeValue),
+            if (bind.mainSupportedPrivacyModeImpls() != '[]')
+              _OptionCheckBox(
+                  context, 'Enable privacy mode', kOptionEnablePrivacyMode,
                   enabled: enabled, fakeValue: fakeValue),
             _OptionCheckBox(context, 'Enable remote configuration modification',
                 kOptionAllowRemoteConfigModification,
@@ -1046,8 +1330,13 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                             if (value ==
                                     passwordValues[passwordKeys
                                         .indexOf(kUsePermanentPassword)] &&
-                                (await bind.mainGetPermanentPassword())
-                                    .isEmpty) {
+                                (await bind.mainGetCommon(
+                                        key: "permanent-password-set")) !=
+                                    "true") {
+                              if (isChangePermanentPasswordDisabled()) {
+                                await callback();
+                                return;
+                              }
                               setPasswordDialog(notEmptyCallback: callback);
                             } else {
                               await callback();
@@ -1086,6 +1375,34 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                   ))
               .toList();
 
+          final isOptFixedNumOTP =
+              isOptionFixed(kOptionAllowNumericOneTimePassword);
+          final isNumOPTChangable = !isOptFixedNumOTP && tmpEnabled && !locked;
+          final numericOneTimePassword = GestureDetector(
+            child: InkWell(
+                child: Row(
+              children: [
+                Checkbox(
+                        value: model.allowNumericOneTimePassword,
+                        onChanged: isNumOPTChangable
+                            ? (bool? v) {
+                                model.switchAllowNumericOneTimePassword();
+                              }
+                            : null)
+                    .marginOnly(right: 5),
+                Expanded(
+                    child: Text(
+                  translate('Numeric one-time password'),
+                  style: TextStyle(
+                      color: disabledTextColor(context, isNumOPTChangable)),
+                ))
+              ],
+            )),
+            onTap: isNumOPTChangable
+                ? () => model.switchAllowNumericOneTimePassword()
+                : null,
+          ).marginOnly(left: _kContentHSubMargin - 5);
+
           final modeKeys = <String>[
             'password',
             'click',
@@ -1122,8 +1439,9 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                     ],
                   ),
                   enabled: tmpEnabled && !locked),
+            if (usePassword) numericOneTimePassword,
             if (usePassword) radios[1],
-            if (usePassword)
+            if (usePassword && !isChangePermanentPasswordDisabled())
               _SubButton('Set permanent password', setPasswordDialog,
                   permEnabled && !locked),
             // if (usePassword)
@@ -1141,12 +1459,16 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
           reverse: true, enabled: enabled),
       ...directIp(context),
       whitelist(),
+      idWhitelist(),
       ...autoDisconnect(context),
+      _OptionCheckBox(context, 'keep-awake-during-incoming-sessions-label',
+          kOptionKeepAwakeDuringIncomingSessions,
+          reverse: false, enabled: enabled),
       if (bind.mainIsInstalled())
         _OptionCheckBox(context, 'allow-only-conn-window-open-tip',
             'allow-only-conn-window-open',
             reverse: false, enabled: enabled),
-      if (bind.mainIsInstalled()) unlockPin()
+      if (bind.mainIsInstalled() && !isUnlockPinDisabled()) unlockPin()
     ]);
   }
 
@@ -1293,6 +1615,52 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
     }
 
     return tmpWrapper();
+  }
+
+  Widget idWhitelist() {
+    bool enabled = !locked;
+    RxBool hasIdWhitelist = idWhitelistNotEmpty().obs;
+    update() async {
+      hasIdWhitelist.value = idWhitelistNotEmpty();
+    }
+
+    onChanged(bool? checked) async {
+      changeIdWhiteList(callback: update);
+    }
+
+    final isOptFixed = isOptionFixed(kOptionIdWhitelist);
+    return GestureDetector(
+      child: Tooltip(
+        message: translate('id_whitelist_tip'),
+        child: Obx(() => Row(
+              children: [
+                Checkbox(
+                        value: hasIdWhitelist.value,
+                        onChanged: enabled && !isOptFixed ? onChanged : null)
+                    .marginOnly(right: 5),
+                Offstage(
+                  offstage: !hasIdWhitelist.value,
+                  child: MouseRegion(
+                    child: const Icon(Icons.warning_amber_rounded,
+                            color: Color.fromARGB(255, 255, 204, 0))
+                        .marginOnly(right: 5),
+                    cursor: SystemMouseCursors.click,
+                  ),
+                ),
+                Expanded(
+                    child: Text(
+                  translate('Use ID whitelisting'),
+                  style: TextStyle(color: disabledTextColor(context, enabled)),
+                ))
+              ],
+            )),
+      ),
+      onTap: enabled
+          ? () {
+              onChanged(!hasIdWhitelist.value);
+            }
+          : null,
+    ).marginOnly(left: _kCheckBoxLeftMargin);
   }
 
   Widget hide_cm(bool enabled) {
@@ -1466,11 +1834,90 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
         bind.mainGetBuildinOption(key: kOptionHideServerSetting) == 'Y';
     final hideProxy =
         isWeb || bind.mainGetBuildinOption(key: kOptionHideProxySetting) == 'Y';
+    final hideWebSocket = isWeb ||
+        bind.mainGetBuildinOption(key: kOptionHideWebSocketSetting) == 'Y';
 
-    if (hideServer && hideProxy) {
+    if (hideServer && hideProxy && hideWebSocket) {
       return Offstage();
     }
 
+    // Helper function to create network setting ListTiles
+    Widget listTile({
+      required IconData icon,
+      required String title,
+      VoidCallback? onTap,
+      Widget? trailing,
+      bool showTooltip = false,
+      String tooltipMessage = '',
+    }) {
+      final titleWidget = showTooltip
+          ? Row(
+              children: [
+                Tooltip(
+                  waitDuration: Duration(milliseconds: 1000),
+                  message: translate(tooltipMessage),
+                  child: Row(
+                    children: [
+                      Text(
+                        translate(title),
+                        style: TextStyle(fontSize: _kContentFontSize),
+                      ),
+                      SizedBox(width: 5),
+                      Icon(
+                        Icons.help_outline,
+                        size: 14,
+                        color: Theme.of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.color
+                            ?.withOpacity(0.7),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            )
+          : Text(
+              translate(title),
+              style: TextStyle(fontSize: _kContentFontSize),
+            );
+
+      return ListTile(
+        leading: Icon(icon, color: _accentColor),
+        title: titleWidget,
+        enabled: !locked,
+        onTap: onTap,
+        trailing: trailing,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        contentPadding: EdgeInsets.symmetric(horizontal: 16),
+        minLeadingWidth: 0,
+        horizontalTitleGap: 10,
+      );
+    }
+
+    Widget switchWidget(IconData icon, String title, String tooltipMessage,
+            String optionKey) =>
+        listTile(
+          icon: icon,
+          title: title,
+          showTooltip: true,
+          tooltipMessage: tooltipMessage,
+          trailing: Switch(
+            value: mainGetBoolOptionSync(optionKey),
+            onChanged: locked || isOptionFixed(optionKey)
+                ? null
+                : (value) {
+                    mainSetBoolOption(optionKey, value);
+                    setState(() {});
+                  },
+          ),
+        );
+
+    final outgoingOnly = bind.isOutgoingOnly();
+
+    final divider = const Divider(height: 1, indent: 16, endIndent: 16);
     return _Card(
       title: 'Network',
       children: [
@@ -1479,39 +1926,68 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (!hideServer)
-                ListTile(
-                  leading: Icon(Icons.dns_outlined, color: _accentColor),
-                  title: Text(
-                    translate('ID/Relay Server'),
-                    style: TextStyle(fontSize: _kContentFontSize),
-                  ),
-                  enabled: !locked,
-                  onTap: () => showServerSettings(gFFI.dialogManager),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  contentPadding: EdgeInsets.symmetric(horizontal: 16),
-                  minLeadingWidth: 0,
-                  horizontalTitleGap: 10,
+                listTile(
+                  icon: Icons.dns_outlined,
+                  title: 'ID/Relay Server',
+                  onTap: () => showServerSettings(gFFI.dialogManager, setState),
                 ),
-              if (!hideServer && !hideProxy)
-                Divider(height: 1, indent: 16, endIndent: 16),
+              if (!hideProxy && !hideServer) divider,
               if (!hideProxy)
-                ListTile(
-                  leading:
-                      Icon(Icons.network_ping_outlined, color: _accentColor),
-                  title: Text(
-                    translate('Socks5/Http(s) Proxy'),
-                    style: TextStyle(fontSize: _kContentFontSize),
-                  ),
-                  enabled: !locked,
+                listTile(
+                  icon: Icons.network_ping_outlined,
+                  title: 'Socks5/Http(s) Proxy',
                   onTap: changeSocks5Proxy,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  contentPadding: EdgeInsets.symmetric(horizontal: 16),
-                  minLeadingWidth: 0,
-                  horizontalTitleGap: 10,
+                ),
+              if (!hideWebSocket && (!hideServer || !hideProxy)) divider,
+              if (!hideWebSocket)
+                switchWidget(
+                    Icons.web_asset_outlined,
+                    'Use WebSocket',
+                    '${translate('websocket_tip')}\n\n${translate('server-oss-not-support-tip')}',
+                    kOptionAllowWebSocket),
+              if (!isWeb)
+                futureBuilder(
+                  future: bind.mainIsUsingPublicServer(),
+                  hasData: (isUsingPublicServer) {
+                    if (isUsingPublicServer) {
+                      return Offstage();
+                    } else {
+                      return Column(
+                        children: [
+                          if (!hideServer || !hideProxy || !hideWebSocket)
+                            divider,
+                          switchWidget(
+                              Icons.no_encryption_outlined,
+                              'Allow insecure TLS fallback',
+                              'allow-insecure-tls-fallback-tip',
+                              kOptionAllowInsecureTLSFallback),
+                          if (!outgoingOnly) divider,
+                          if (!outgoingOnly)
+                            listTile(
+                              icon: Icons.lan_outlined,
+                              title: 'Disable UDP',
+                              showTooltip: true,
+                              tooltipMessage:
+                                  '${translate('disable-udp-tip')}\n\n${translate('server-oss-not-support-tip')}',
+                              trailing: Switch(
+                                value: bind.mainGetOptionSync(
+                                        key: kOptionDisableUdp) ==
+                                    'Y',
+                                onChanged:
+                                    locked || isOptionFixed(kOptionDisableUdp)
+                                        ? null
+                                        : (value) async {
+                                            await bind.mainSetOption(
+                                                key: kOptionDisableUdp,
+                                                value: value ? 'Y' : 'N');
+                                            setState(() {});
+                                          },
+                              ),
+                            ),
+                        ],
+                      );
+                    }
+                  },
                 ),
             ],
           ),
@@ -1537,6 +2013,7 @@ class _DisplayState extends State<_Display> {
       scrollStyle(context),
       imageQuality(context),
       codec(context),
+      if (isDesktop) trackpadSpeed(context),
       if (!isWeb) privacyModeImpl(context),
       other(context),
     ]).marginOnly(bottom: _kListViewBottomMargin);
@@ -1573,6 +2050,13 @@ class _DisplayState extends State<_Display> {
     }
 
     final groupValue = bind.mainGetUserDefaultOption(key: kOptionScrollStyle);
+
+    onEdgeScrollEdgeThicknessChanged(double value) async {
+      await bind.mainSetUserDefaultOption(
+          key: kOptionEdgeScrollEdgeThickness, value: value.round().toString());
+      setState(() {});
+    }
+
     return _Card(title: 'Default Scroll Style', children: [
       _Radio(context,
           value: kRemoteScrollStyleAuto,
@@ -1584,6 +2068,23 @@ class _DisplayState extends State<_Display> {
           groupValue: groupValue,
           label: 'Scrollbar',
           onChanged: isOptFixed ? null : onChanged),
+      if (!isWeb) ...[
+        _Radio(context,
+            value: kRemoteScrollStyleEdge,
+            groupValue: groupValue,
+            label: 'ScrollEdge',
+            onChanged: isOptFixed ? null : onChanged),
+        Offstage(
+            offstage: groupValue != kRemoteScrollStyleEdge,
+            child: EdgeThicknessControl(
+              value: double.tryParse(bind.mainGetUserDefaultOption(
+                      key: kOptionEdgeScrollEdgeThickness)) ??
+                  100.0,
+              onChanged: isOptionFixed(kOptionEdgeScrollEdgeThickness)
+                  ? null
+                  : onEdgeScrollEdgeThicknessChanged,
+            )),
+      ],
     ]);
   }
 
@@ -1621,6 +2122,26 @@ class _DisplayState extends State<_Display> {
         offstage: groupValue != kRemoteImageQualityCustom,
         child: customImageQualitySetting(),
       )
+    ]);
+  }
+
+  Widget trackpadSpeed(BuildContext context) {
+    final initSpeed =
+        (int.tryParse(bind.mainGetUserDefaultOption(key: kKeyTrackpadSpeed)) ??
+            kDefaultTrackpadSpeed);
+    final curSpeed = SimpleWrapper(initSpeed);
+    void onDebouncer(int v) {
+      bind.mainSetUserDefaultOption(
+          key: kKeyTrackpadSpeed, value: v.toString());
+      // It's better to notify all sessions that the default speed is changed.
+      // But it may also be ok to take effect in the next connection.
+    }
+
+    return _Card(title: 'Default trackpad speed', children: [
+      TrackpadSpeedWidget(
+        value: curSpeed,
+        onDebouncer: onDebouncer,
+      ),
     ]);
   }
 
@@ -1718,14 +2239,13 @@ class _DisplayState extends State<_Display> {
   }
 
   Widget otherRow(String label, String key) {
-    final value = bind.mainGetUserDefaultOption(key: key) == 'Y';
-    final isOptFixed = isOptionFixed(key);
+    final value = getOtherDefaultSettingOption(key) == 'Y';
+    final isOptFixed = isOtherDefaultSettingReadOnly(key);
     onChanged(bool b) async {
-      await bind.mainSetUserDefaultOption(
-          key: key,
-          value: b
-              ? 'Y'
-              : (key == kOptionEnableFileCopyPaste ? 'N' : defaultOptionNo));
+      await setOtherDefaultSettingOption(
+        key,
+        b ? 'Y' : (key == kOptionEnableFileCopyPaste ? 'N' : defaultOptionNo),
+      );
       setState(() {});
     }
 
@@ -1772,7 +2292,9 @@ class _AccountState extends State<_Account> {
 
   Widget accountAction() {
     return Obx(() => _Button(
-        gFFI.userModel.userName.value.isEmpty ? 'Login' : 'Logout',
+        gFFI.userModel.userName.value.isEmpty
+            ? 'Login'
+            : '${translate('Logout')} (${gFFI.userModel.accountLabelWithHandle})',
         () => {
               gFFI.userModel.userName.value.isEmpty
                   ? loginDialog()
@@ -1781,23 +2303,64 @@ class _AccountState extends State<_Account> {
   }
 
   Widget useInfo() {
-    text(String key, String value) {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: SelectionArea(child: Text('${translate(key)}: $value'))
-            .marginSymmetric(vertical: 4),
-      );
-    }
-
     return Obx(() => Offstage(
           offstage: gFFI.userModel.userName.value.isEmpty,
-          child: Column(
-            children: [
-              text('Username', gFFI.userModel.userName.value),
-              // text('Group', gFFI.groupModel.groupName.value),
-            ],
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Builder(builder: (context) {
+              final avatarWidget = _buildUserAvatar();
+              return Row(
+                children: [
+                  if (avatarWidget != null) avatarWidget,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          gFFI.userModel.displayNameOrUserName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        SelectionArea(
+                          child: Text(
+                            '@${gFFI.userModel.userName.value}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color:
+                                  Theme.of(context).textTheme.bodySmall?.color,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            }),
           ),
         )).marginOnly(left: 18, top: 16);
+  }
+
+  Widget? _buildUserAvatar() {
+    // Resolve relative avatar path at display time
+    final avatar =
+        bind.mainResolveAvatarUrl(avatar: gFFI.userModel.avatar.value);
+    return buildAvatarWidget(
+      avatar: avatar,
+      size: 44,
+    );
   }
 }
 
@@ -1849,49 +2412,6 @@ class _CheckboxState extends State<_Checkbox> {
       ).marginOnly(left: _kCheckBoxLeftMargin),
       onTap: () => onChanged(!value),
     );
-  }
-}
-
-class _Plugin extends StatefulWidget {
-  const _Plugin({Key? key}) : super(key: key);
-
-  @override
-  State<_Plugin> createState() => _PluginState();
-}
-
-class _PluginState extends State<_Plugin> {
-  @override
-  Widget build(BuildContext context) {
-    bind.pluginListReload();
-    final scrollController = ScrollController();
-    return ChangeNotifierProvider.value(
-      value: pluginManager,
-      child: Consumer<PluginManager>(builder: (context, model, child) {
-        return ListView(
-          controller: scrollController,
-          children: model.plugins.map((entry) => pluginCard(entry)).toList(),
-        ).marginOnly(bottom: _kListViewBottomMargin);
-      }),
-    );
-  }
-
-  Widget pluginCard(PluginInfo plugin) {
-    return ChangeNotifierProvider.value(
-      value: plugin,
-      child: Consumer<PluginInfo>(
-        builder: (context, model, child) => DesktopSettingsCard(plugin: model),
-      ),
-    );
-  }
-
-  Widget accountAction() {
-    return Obx(() => _Button(
-        gFFI.userModel.userName.value.isEmpty ? 'Login' : 'Logout',
-        () => {
-              gFFI.userModel.userName.value.isEmpty
-                  ? loginDialog()
-                  : logOutConfirmDialog()
-            }));
   }
 }
 
@@ -2057,17 +2577,20 @@ class _AboutState extends State<_About> {
       final version = await bind.mainGetVersion();
       final buildDate = await bind.mainGetBuildDate();
       final fingerprint = await bind.mainGetFingerprint();
+      final myId = await bind.mainGetMyId();
       return {
         'license': license,
         'version': version,
         'buildDate': buildDate,
-        'fingerprint': fingerprint
+        'fingerprint': fingerprint,
+        'myId': myId
       };
     }(), hasData: (data) {
       final license = data['license'].toString();
       final version = data['version'].toString();
       final buildDate = data['buildDate'].toString();
       final fingerprint = data['fingerprint'].toString();
+      final myId = data['myId'].toString();
       const linkStyle = TextStyle(decoration: TextDecoration.underline);
       final scrollController = ScrollController();
       return SingleChildScrollView(
@@ -2089,6 +2612,9 @@ class _AboutState extends State<_About> {
                 SelectionArea(
                     child: Text('${translate('Fingerprint')}: $fingerprint')
                         .marginSymmetric(vertical: 4.0)),
+              SelectionArea(
+                  child: Text('${translate('ID')}: $myId')
+                      .marginSymmetric(vertical: 4.0)),
               InkWell(
                   onTap: () {
                     launchUrlString('https://rustdesk.com/privacy.html');
@@ -2117,7 +2643,7 @@ class _AboutState extends State<_About> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Copyright © ${DateTime.now().toString().substring(0, 4)} Purslane Ltd.\n$license',
+                            'Copyright © ${DateTime.now().toString().substring(0, 4)} Purslane Tech Pte. Ltd.\n$license',
                             style: const TextStyle(color: Colors.white),
                           ),
                           Text(
@@ -2194,6 +2720,8 @@ Widget _OptionCheckBox(
   bool isServer = true,
   bool Function()? optGetter,
   Future<void> Function(String, bool)? optSetter,
+  // Optional widget rendered between the label and the trailing space.
+  Widget? trailing,
 }) {
   getOpt() => optGetter != null
       ? optGetter()
@@ -2237,11 +2765,23 @@ Widget _OptionCheckBox(
             offstage: !ref.value || checkedIcon == null,
             child: checkedIcon?.marginOnly(right: 5),
           ),
-          Expanded(
+          // Without `trailing`, keep the original Expanded(Text) layout.
+          if (trailing == null)
+            Expanded(
+                child: Text(
+              translate(label),
+              style: TextStyle(color: disabledTextColor(context, enabled)),
+            ))
+          else ...[
+            Flexible(
               child: Text(
-            translate(label),
-            style: TextStyle(color: disabledTextColor(context, enabled)),
-          ))
+                translate(label),
+                style: TextStyle(color: disabledTextColor(context, enabled)),
+              ),
+            ),
+            trailing,
+            const Spacer(),
+          ],
         ],
       ),
     ).marginOnly(left: _kCheckBoxLeftMargin),
@@ -2294,6 +2834,49 @@ class WaylandCard extends StatefulWidget {
 
 class _WaylandCardState extends State<WaylandCard> {
   final restoreTokenKey = 'wayland-restore-token';
+  static const _kClearShortcutsInhibitorEventKey =
+      'clear-gnome-shortcuts-inhibitor-permission-res';
+  final _clearShortcutsInhibitorFailedMsg = ''.obs;
+  // Don't show the shortcuts permission reset button for now.
+  // Users can change it manually:
+  //   "Settings" -> "Apps" -> "RustDesk" -> "Permissions" -> "Inhibit Shortcuts".
+  // For resetting(clearing) the permission from the portal permission store, you can
+  // use (replace <desktop-id> with the RustDesk desktop file ID):
+  //   busctl --user call org.freedesktop.impl.portal.PermissionStore \
+  //   /org/freedesktop/impl/portal/PermissionStore org.freedesktop.impl.portal.PermissionStore \
+  //   DeletePermission sss "gnome" "shortcuts-inhibitor" "<desktop-id>"
+  // On a native install this is typically "rustdesk.desktop"; on Flatpak it is usually
+  // the exported desktop ID derived from the Flatpak app-id (e.g. "com.rustdesk.RustDesk.desktop").
+  //
+  // We may add it back in the future if needed.
+  final showResetInhibitorPermission = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (showResetInhibitorPermission) {
+      platformFFI.registerEventHandler(
+          _kClearShortcutsInhibitorEventKey, _kClearShortcutsInhibitorEventKey,
+          (evt) async {
+        if (!mounted) return;
+        if (evt['success'] == true) {
+          setState(() {});
+        } else {
+          _clearShortcutsInhibitorFailedMsg.value =
+              evt['msg'] as String? ?? 'Unknown error';
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    if (showResetInhibitorPermission) {
+      platformFFI.unregisterEventHandler(
+          _kClearShortcutsInhibitorEventKey, _kClearShortcutsInhibitorEventKey);
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2301,9 +2884,16 @@ class _WaylandCardState extends State<WaylandCard> {
       future: bind.mainHandleWaylandScreencastRestoreToken(
           key: restoreTokenKey, value: "get"),
       hasData: (restoreToken) {
+        final hasShortcutsPermission = showResetInhibitorPermission &&
+            bind.mainGetCommonSync(
+                    key: "has-gnome-shortcuts-inhibitor-permission") ==
+                "true";
+
         final children = [
           if (restoreToken.isNotEmpty)
             _buildClearScreenSelection(context, restoreToken),
+          if (hasShortcutsPermission)
+            _buildClearShortcutsInhibitorPermission(context),
         ];
         return Offstage(
           offstage: children.isEmpty,
@@ -2347,6 +2937,50 @@ class _WaylandCardState extends State<WaylandCard> {
             Theme.of(context).colorScheme.error.withOpacity(0.75)),
       ),
     );
+  }
+
+  Widget _buildClearShortcutsInhibitorPermission(BuildContext context) {
+    onConfirm() {
+      _clearShortcutsInhibitorFailedMsg.value = '';
+      bind.mainSetCommon(
+          key: "clear-gnome-shortcuts-inhibitor-permission", value: "");
+      gFFI.dialogManager.dismissAll();
+    }
+
+    showConfirmMsgBox() => msgBoxCommon(
+            gFFI.dialogManager,
+            'Confirmation',
+            Text(
+              translate('confirm-clear-shortcuts-inhibitor-permission-tip'),
+            ),
+            [
+              dialogButton('OK', onPressed: onConfirm),
+              dialogButton('Cancel',
+                  onPressed: () => gFFI.dialogManager.dismissAll())
+            ]);
+
+    return Column(children: [
+      Obx(
+        () => _clearShortcutsInhibitorFailedMsg.value.isEmpty
+            ? Offstage()
+            : Align(
+                alignment: Alignment.topLeft,
+                child: Text(_clearShortcutsInhibitorFailedMsg.value,
+                        style: DefaultTextStyle.of(context)
+                            .style
+                            .copyWith(color: Colors.red))
+                    .marginOnly(bottom: 10.0)),
+      ),
+      _Button(
+        'Reset keyboard shortcuts permission',
+        showConfirmMsgBox,
+        tip: 'clear-shortcuts-inhibitor-permission-tip',
+        style: ButtonStyle(
+          backgroundColor: MaterialStateProperty.all<Color>(
+              Theme.of(context).colorScheme.error.withOpacity(0.75)),
+        ),
+      ),
+    ]);
   }
 }
 
@@ -2429,7 +3063,7 @@ Widget _lock(
                           ]).marginSymmetric(vertical: 2)),
                   onPressed: () async {
                     final unlockPin = bind.mainGetUnlockPin();
-                    if (unlockPin.isEmpty) {
+                    if (unlockPin.isEmpty || isUnlockPinDisabled()) {
                       bool checked = await callMainCheckSuperUserPermission();
                       if (checked) {
                         onUnlock();
@@ -2549,6 +3183,37 @@ class _CountDownButtonState extends State<_CountDownButton> {
             },
       child: Text(
         _isButtonDisabled ? '$_countdownSeconds s' : translate(widget.text),
+      ),
+    );
+  }
+}
+
+// Tappable row that pushes the shortcut configuration page.
+class _ShortcutsConfigureRow extends StatelessWidget {
+  // ignore: unused_element
+  const _ShortcutsConfigureRow({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () {
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => const DesktopKeyboardShortcutsPage(),
+        ));
+      },
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(translate('Configure shortcuts...')),
+          ),
+          Icon(Icons.arrow_forward_ios,
+                  size: 16, color: disabledTextColor(context, true))
+              .marginOnly(right: 4),
+        ],
+      ).marginOnly(
+        left: _kCheckBoxLeftMargin,
+        top: 6,
+        bottom: 6,
       ),
     );
   }

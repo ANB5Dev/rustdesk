@@ -132,6 +132,9 @@ pub enum ClipboardFile {
         requested_data: Vec<u8>,
     },
     TryEmpty,
+    Files {
+        files: Vec<(String, u64)>,
+    },
 }
 
 struct MsgChannel {
@@ -284,12 +287,4 @@ fn send_data_to_all(data: ClipboardFile) {
     for msg_channel in VEC_MSG_CHANNEL.read().unwrap().iter() {
         allow_err!(msg_channel.sender.send(data.clone()));
     }
-}
-
-#[cfg(test)]
-mod tests {
-    // #[test]
-    // fn test_cliprdr_run() {
-    //     super::cliprdr_run();
-    // }
 }
