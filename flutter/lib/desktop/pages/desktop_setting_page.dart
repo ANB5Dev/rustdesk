@@ -75,7 +75,7 @@ class DesktopSettingPage extends StatefulWidget {
         bind.mainGetBuildinOption(key: kOptionHideNetworkSetting) != 'Y')
       SettingsTabKey.network,
     if (!bind.isIncomingOnly()) SettingsTabKey.display,
-    if (!bind.isDisableAccount()) SettingsTabKey.account,
+
     if (isWindows &&
         !bind.isDisableSettings() &&
         bind.mainGetBuildinOption(key: kOptionHideRemotePrinterSetting) != 'Y')
@@ -1041,7 +1041,7 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
                 password(context),
                 _Card(title: '2FA', children: [tfa()]),
                 if (!isChangeIdDisabled())
-                  _Card(title: 'ID', children: [changeId()]),
+  
                 more(context),
               ]),
             ),
@@ -2617,18 +2617,19 @@ class _AboutState extends State<_About> {
                       .marginSymmetric(vertical: 4.0)),
               InkWell(
                   onTap: () {
-                    launchUrlString('https://rustdesk.com/privacy.html');
+                    launchUrlString(
+                        'https://www.gnu.org/licenses/agpl-3.0.html');
                   },
                   child: Text(
-                    translate('Privacy Statement'),
+                    translate('License'),
                     style: linkStyle,
                   ).marginSymmetric(vertical: 4.0)),
               InkWell(
                   onTap: () {
-                    launchUrlString('https://rustdesk.com');
+                    launchUrlString('https://github.com/ANB5Dev/rustdesk/');
                   },
                   child: Text(
-                    translate('Website'),
+                    translate('Source'),
                     style: linkStyle,
                   ).marginSymmetric(vertical: 4.0)),
               Container(
@@ -2646,12 +2647,6 @@ class _AboutState extends State<_About> {
                             'Copyright © ${DateTime.now().toString().substring(0, 4)} Purslane Tech Pte. Ltd.\n$license',
                             style: const TextStyle(color: Colors.white),
                           ),
-                          Text(
-                            translate('Slogan_tip'),
-                            style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white),
-                          )
                         ],
                       ),
                     ),

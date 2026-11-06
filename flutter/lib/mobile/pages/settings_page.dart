@@ -294,11 +294,6 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     final customClientSection = CustomSettingsSection(
         child: Column(
       children: [
-        if (bind.isCustomClient())
-          Align(
-            alignment: Alignment.center,
-            child: loadPowered(context),
-          ),
         Align(
           alignment: Alignment.center,
           child: loadLogo(),
@@ -736,7 +731,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
     final settings = SettingsList(
       sections: [
         customClientSection,
-        if (!bind.isDisableAccount())
+        if (false)
           SettingsSection(
             title: Text(translate('Account')),
             tiles: [
@@ -933,7 +928,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
                 });
               },
             ),
-          if (!bind.isDisableAccount())
+          if (false)
             SettingsTile.switchTile(
               title: Text(translate('note-at-conn-end-tip')),
               initialValue: _allowAskForNoteAtEndOfConnection,
