@@ -146,6 +146,8 @@ jobs:
           submodules: recursive
   
       - name: Generate custom text
+        env:
+          PYTHONIOENCODING: utf-8
         run: python3 .\customization\generate_custom_text.py '${{ inputs.customization }}'
         
       - name: Move custom images
