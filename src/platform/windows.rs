@@ -3604,7 +3604,7 @@ reg add \"{subkey}\" /f /v EstimatedSize /t REG_DWORD /d {size}
 
     let filter = format!(" /FI \"PID ne {}\"", get_current_pid());
     let restore_service_cmd = if is_service_running {
-        format!("sc start \"{}",\" &app_name)
+        format!("sc start \"{}\"", &app_name)
     } else {
         "".to_owned()
     };
@@ -4018,7 +4018,7 @@ fn service_control_command(operation: &str, exe: &str, installed_now: bool) -> R
     let is_create = matches!(operation, "create-service" | "create-service-with-rollback");
     let legacy = match operation {
         "create-service" | "create-service-with-rollback" => get_create_service(exe),
-        "remove" => format!("sc stop \"{app_name}\r\nsc\" delete {app_name}"),
+        "remove" => format!("sc stop \"{app_name}\"\r\nsc delete \"{app_name}\""),
         _ => bail!("Unsupported service operation: {operation}"),
     };
     if legacy.is_empty() || (is_create && Config::get_option("stop-service") == "Y") {
