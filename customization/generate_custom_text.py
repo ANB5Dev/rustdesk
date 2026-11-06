@@ -52,7 +52,7 @@ def main():
                     'times': 2
                 },
                 {
-                    'from': r'LegalCopyright = "Copyright © \d+ Purslane Ltd\. All rights reserved\."',
+                    'from': r'LegalCopyright = "Copyright © \d+ Purslane Tech Pte\. Ltd\. All rights reserved\."',
                     'to':   f'LegalCopyright = "Copyright © {datetime.now().year} Purslane Ltd. & {config.copyright}. All rights reserved."',
                     'regex': True
                 },
@@ -69,11 +69,11 @@ def main():
         },
 
         # Rust<->Flutter bridge
-        {
-            'file': 'flutter/lib/web/bridge.dart',
-            'from': "return 'RustDesk';",
-            'to':  f"return '{config.app_name}';"
-        },
+        #{
+            #'file': 'flutter/lib/web/bridge.dart',
+            #'from': "return 'RustDesk';",
+            #'to':  f"return '{config.app_name}';"
+        #},
 
         # Enable incoming-only mode
         {
@@ -127,19 +127,19 @@ pub fn is_incoming_only() -> bool {
             ]
         },
 
-        {
-            'file': 'src/main.rs',
-            'multi': [
-                {
-                    'from': '.author("Purslane Ltd<info@rustdesk.com>")',
-                    'to':  f'.author("{config.company}<{config.email}>")'
-                },
-                {
-                    'from': '.about("RustDesk command line tool")',
-                    'to':  f'.about("{config.app_name} command line tool")'
-                }
-            ]
-        },
+        #{
+            #'file': 'src/main.rs',
+            #'multi': [
+                #{
+                    #'from': '.author("Purslane Ltd<info@rustdesk.com>")',
+                    #'to':  f'.author("{config.company}<{config.email}>")'
+                #},
+                #{
+                    #'from': '.about("RustDesk command line tool")',
+                    #'to':  f'.about("{config.app_name} command line tool")'
+                #}
+            #]
+        #},
 
         {
             'file': 'flutter/lib/desktop/widgets/tabbar_widget.dart',
@@ -155,8 +155,8 @@ pub fn is_incoming_only() -> bool {
 
         {
             'file': 'flutter/lib/desktop/pages/desktop_setting_page.dart',
-            'from': 'Purslane Ltd.\\n$license',
-            'to':  f'Purslane Ltd. & {config.copyright}.\\n\\nThis program is based on work originally created by Purslane Ltd. and has been adapted by {config.copyright}.\\n\\nThis program is distributed under the terms of the GNU Affero General Public License (AGPL), version 3 or later, as published by the Free Software Foundation. You may redistribute and/or modify this software under the terms of the AGPL. See the AGPL for more details.'
+            'from': 'Purslane Tech Pte. Ltd.\\n$license',
+            'to':  f'Purslane Tech Pte. Ltd. & {config.copyright}.\\n\\nThis program is based on work originally created by Purslane Tech Pte. Ltd. and has been adapted by {config.copyright}.\\n\\nThis program is distributed under the terms of the GNU Affero General Public License (AGPL), version 3 or later, as published by the Free Software Foundation. You may redistribute and/or modify this software under the terms of the AGPL. See the AGPL for more details.'
         },
 
         # Enable debug output for windows cmds
@@ -189,7 +189,7 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
                     'to':  f'description = "{config.description}"'
                 },
                 {
-                    'from': r'LegalCopyright = "Copyright © \d+ Purslane Ltd\. All rights reserved\."',
+                    'from': r'LegalCopyright = "Copyright © \d+ Purslane Tech Pte\. Ltd\. All rights reserved\."',
                     'to':   f'LegalCopyright = "Copyright © {datetime.now().year} Purslane Ltd. & {config.copyright}. All rights reserved."',
                     'regex': True
                 },
@@ -233,7 +233,7 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
             'file': 'flutter/windows/runner/Runner.rc',
             'multi': [
                 {
-                    'from': 'Purslane Ltd',
+                    'from': 'Purslane Tech Pte. Ltd.',
                     'to':   config.company,
                     'times': 2
                 },
@@ -257,8 +257,9 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
                     'to':  f'PRODUCT_NAME = {config.app_name}'
                 },
                 {
-                    'from': 'PRODUCT_COPYRIGHT = Copyright © 2025 Purslane Ltd. All rights reserved.',
-                    'to':  f'PRODUCT_COPYRIGHT = Copyright © 2025 Purslane Ltd. & {config.copyright}. All rights reserved.'
+                    'from': r'PRODUCT_COPYRIGHT = Copyright © \d+ Purslane Tech Pte\. Ltd\. All rights reserved\.',
+                    'to':   f'PRODUCT_COPYRIGHT = Copyright © {datetime.now().year} Purslane Tech Pte. Ltd. & {config.copyright}. All rights reserved.',
+                    'regex': True
                 }
             ]
         },
@@ -268,7 +269,7 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
             'file': 'src/platform/macos.rs',
             'from': 'crate::get_full_name()',
             'to':  f'"{config.identifier}"',
-            'times': 4
+            'times': 5
         },
 
         {
@@ -295,22 +296,14 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
             'file': 'src/platform/privileges_scripts/install.scpt',
             'from': 'com.carriez.RustDesk',
             'to':   config.identifier,
-            'times': 9
+            'times': 11
         },
 
         {
             'file': 'src/platform/privileges_scripts/uninstall.scpt',
-            'multi': [
-                {
-                    'from': 'com.carriez.RustDesk',
-                    'to':   config.identifier,
-                    'times': 3
-                },
-                {
-                    'from': 'want to unload daemon',
-                    'to':   'wants to unload launch daemon'
-                },
-            ],
+            'from': 'com.carriez.RustDesk',
+            'to':   config.identifier,
+            'times': 3
         },
 
         # macOS plist & xcodeproj identifiers
@@ -426,7 +419,7 @@ fn run_cmds(cmds: String, show: bool, tip: &str) -> ResultType<()> {
             'file': 'flutter/android/app/src/main/res/values/strings.xml',
             'from': 'RustDesk',
             'to': config.app_name,
-            'times': 2
+            'times': 3
         },
 
         {
