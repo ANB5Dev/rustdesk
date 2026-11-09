@@ -11,7 +11,7 @@ def main():
 
     if len(sys.argv) < 2:
         print(r"Usage: python generate_icons.py '<JSON>', eg:")
-        print('python generate_custom_text.py \'{ \\"app_name\\": \\"ASCI Hulp op Afstand\\", \\"email\\": \\"info@asci.nl\\", \\"description\\": \\"ASCI Hulp op Afstand Remote Desktop Application\\", \\"company\\": \\"ASCI Technologies BV\\", \\"website\\": \\"https://asci.nl\\", \\"privacy_url\\": \\"https://asci.nl\\", \\"identifier\\": \\"nl.asci.hulpopafstand\\", \\"copyright\\": \\"ASCI Technologies BV\\", \\"images\\": \\"asci\\", \\"incoming_only\\": true, \\"debug\\": true }\'')
+        print('python generate_custom_text.py \'{ \\"app_name\\": \\"ASCI Hulp op Afstand\\", \\"email\\": \\"info@asci.nl\\", \\"description\\": \\"ASCI Hulp op Afstand Remote Desktop Application\\", \\"company\\": \\"ASCI Technologies BV\\", \\"website\\": \\"https://asci.nl\\", \\"privacy_url\\": \\"https://asci.nl\\", \\"identifier\\": \\"nl.asci.hulpopafstand\\", \\"copyright\\": \\"ASCI Technologies BV\\", \\"images\\": \\"asci\\", \\"incoming_only\\": true, \\"outgoing_only\\": true, \\"debug\\": true }\'')
         sys.exit(1)
 
     config_arg = sys.argv[1]
@@ -92,6 +92,28 @@ pub fn is_incoming_only() -> bool {
             'to':
 '''\
 pub fn is_incoming_only() -> bool {
+    true
+}
+'''
+        },
+
+        # Enable outgoing-only mode
+        {
+            'file': 'libs/hbb_common/src/config.rs',
+            'if':   config.outgoing_only,
+            'from':
+'''\
+pub fn is_outgoing_only() -> bool {
+    HARD_SETTINGS
+        .read()
+        .unwrap()
+        .get("conn-type")
+        .map_or(false, |x| x == ("outgoing"))
+}
+''',
+            'to':
+'''\
+pub fn is_outgoing_only() -> bool {
     true
 }
 '''
